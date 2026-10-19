@@ -199,7 +199,7 @@ mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px
     </div>
     <div class="field">
       <label class="lbl" for="pin">Team PIN</label>
-      <input id="pin" type="password" placeholder="PIN from the organisers" autocomplete="off">
+      <input id="pin" type="password" placeholder="Sales PIN or check-in PIN" autocomplete="off">
     </div>
     <button class="btn btn-main" id="loginBtn">Start</button>
   </div>
@@ -215,7 +215,7 @@ mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px
       <button class="desk" id="deskBtn" title="Switch desk"></button>
     </div>
     <nav class="tabs">
-      <button class="tab on" data-tab="checkin">Check in</button>
+      <button class="tab on" data-tab="checkin" id="lookupTab">Check in</button>
       <button class="tab" data-tab="sell">Sell ticket</button>
       <button class="tab" data-tab="overview">Overview</button>
     </nav>
@@ -285,7 +285,6 @@ mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px
           <div class="field"><label class="lbl" for="fParentPhone">Parent phone</label><input id="fParentPhone" type="tel" inputmode="tel" autocomplete="off"></div>
         </div>
         <div class="field"><label class="lbl" for="fNotes">Notes</label><input id="fNotes" autocomplete="off" placeholder="Optional — e.g. paid by UPI"></div>
-        <label class="check"><input type="checkbox" id="fCheckNow"> Check them in right now</label>
         <button class="btn btn-main" id="sellBtn">Save ticket</button>
       </div>
       <div class="card done hidden" id="sellDone">
@@ -327,7 +326,9 @@ const store = {
   del(k){ try{ localStorage.removeItem('casnival.'+k); }catch(e){} }
 };
 
-let session = { desk: store.get('desk') || '', pin: store.get('pin') || '' };
+let session = { desk: store.get('desk') || '', pin: store.get('pin') || '', role: store.get('role') || 'checkin' };
+const canSell = () => session.role === 'sales';
+const canCheckIn = () => session.role === 'checkin';
 let tickets = [];          // all tickets from the sheet
 let byNo = new Map();
 let lastSync = 0, syncing = false, syncFailed = false;
@@ -362,12 +363,15 @@ function demoDb(){
 }
 async function demoApi(action, p){
   await new Promise(r => setTimeout(r, 250));
-  if (session.pin !== '1234') return { ok:false, authError:true, error:'Wrong PIN. (Demo PIN is 1234)' };
+  const role = session.pin === '1234' ? 'sales' : session.pin === '5678' ? 'checkin' : '';
+  if (!role) return { ok:false, authError:true, error:'Wrong PIN. (Demo PINs: 1234 sales, 5678 check-in)' };
+  if (role !== 'sales' && (action === 'sell' || action === 'update')) return { ok:false, error:'The check-in PIN can only check people in. Ask the sales desk.' };
+  if (role !== 'checkin' && (action === 'checkin' || action === 'undo')) return { ok:false, error:"The sales PIN can't check people in. Send them to the gate." };
   const db = demoDb(); const save = () => store.set('demo', JSON.stringify(db));
   const find = n => db.find(t => t.ticketNo === Number(n));
   const dev = session.desk;
-  if (action === 'ping') return { ok:true };
-  if (action === 'list') return { ok:true, tickets: db };
+  if (action === 'ping') return { ok:true, role };
+  if (action === 'list') return { ok:true, role, tickets: db };
   if (action === 'sell'){
     const d = p.data; const name = (d.name||'').trim(), phone = (d.phone||'').replace(/[^\d+]/g,'');
     if (!name) return { ok:false, error:'Name is required.' };
@@ -376,7 +380,7 @@ async function demoApi(action, p){
     if (String(d.ticketNo||'').trim()){ no = parseInt(d.ticketNo,10); if (!(no>0)) return {ok:false,error:'Ticket number must be a positive whole number.'}; if (find(no)) return { ok:false, duplicate:true, error:'Ticket #'+no+' has already been sold.' }; }
     else no = db.reduce((m,t)=>Math.max(m,t.ticketNo),0)+1;
     const now = new Date().toISOString();
-    const t = { ticketNo:no, type:d.type, name, phone, email:(d.email||'').trim(), parentName:(d.parentName||'').trim(), parentPhone:(d.parentPhone||'').replace(/[^\d+]/g,''), saleType:d.saleType, soldBy:dev, soldAt:now, checkedIn:!!d.checkInNow, checkedInAt:d.checkInNow?now:'', checkedInBy:d.checkInNow?dev:'', notes:(d.notes||'').trim() };
+    const t = { ticketNo:no, type:d.type, name, phone, email:(d.email||'').trim(), parentName:(d.parentName||'').trim(), parentPhone:(d.parentPhone||'').replace(/[^\d+]/g,''), saleType:d.saleType, soldBy:dev, soldAt:now, checkedIn:false, checkedInAt:'', checkedInBy:'', notes:(d.notes||'').trim() };
     db.push(t); db.sort((a,b)=>a.ticketNo-b.ticketNo); save(); return { ok:true, ticket:t };
   }
   const t = find(p.ticketNo);
@@ -415,6 +419,7 @@ async function refresh(manual){
     const r = await api('list');
     if (r.authError){ logout(r.error); return; }
     if (!r.ok) throw new Error(r.error);
+    if (r.role && r.role !== session.role) setRole(r.role);
     setTickets(r.tickets); lastSync = Date.now(); syncFailed = false;
     renderAll();
     if (manual) toast('Up to date');
@@ -501,7 +506,7 @@ function renderResults(){
   if (!list.length){
     const n = digits(q);
     $('#results').innerHTML = '<div class="empty card">' + (q ? 'Nothing matches “' + esc(q) + '”.' : 'No tickets in this filter.') +
-      (n && /^[#\s\d]+$/.test(q.trim()) ? '<br><br><button class="btn btn-main" style="max-width:280px" data-sellno="'+esc(n)+'">Sell ticket #'+esc(n)+' on the spot</button>' : '') + '</div>';
+      (canSell() && n && /^[#\s\d]+$/.test(q.trim()) ? '<br><br><button class="btn btn-main" style="max-width:280px" data-sellno="'+esc(n)+'">Sell ticket #'+esc(n)+' on the spot</button>' : '') + '</div>';
     return;
   }
   $('#results').innerHTML = shown.map(t => `
@@ -514,7 +519,7 @@ function renderResults(){
 }
 $('#results').addEventListener('click', e => {
   const b = e.target.closest('[data-no]'); if (b) return openTicket(Number(b.dataset.no));
-  const s = e.target.closest('[data-sellno]'); if (s){ switchTab('sell'); resetSell(); $('#fNo').value = s.dataset.sellno; setSeg('#segSale','On-spot'); $('#fCheckNow').checked = true; renderSellHint(); $('#fName').focus(); }
+  const s = e.target.closest('[data-sellno]'); if (s){ switchTab('sell'); resetSell(); $('#fNo').value = s.dataset.sellno; sellSale = 'On-spot'; setSeg('#segSale','On-spot'); renderSellHint(); $('#fName').focus(); }
 });
 
 /* ---------------------------- ticket sheet ---------------------------- */
@@ -545,19 +550,20 @@ function openTicket(no, quiet){
         <dt>Sold</dt><dd>${esc(t.saleType)}${t.soldAt ? ' · '+esc(fmtTime(t.soldAt)) : ''}${t.soldBy ? ' · '+esc(t.soldBy) : ''}</dd>
         ${t.notes ? `<dt>Notes</dt><dd>${esc(t.notes)}</dd>` : ''}
       </dl>
-      ${t.checkedIn
+      ${!t.checkedIn && !canCheckIn() ? '<p class="hint">Not checked in yet. The gate checks people in.</p>' : ''}
+      ${t.checkedIn || !canCheckIn()
         ? `<button class="btn btn-ghost" id="mClose" data-close>Close</button>`
         : `<button class="btn btn-main ${gold?'gold':''}" id="mCheck">Check in ${gold?'★ Golden':'Regular'} ticket</button>`}
       <div class="btn-row">
-        <button class="btn btn-ghost" id="mEdit">Edit details</button>
-        ${t.checkedIn ? '<button class="btn btn-ghost" id="mUndo">Undo check-in</button>' : ''}
+        ${canSell() ? '<button class="btn btn-ghost" id="mEdit">Edit details</button>' : ''}
+        ${t.checkedIn && canCheckIn() ? '<button class="btn btn-ghost" id="mUndo">Undo check-in</button>' : ''}
       </div>
     </div>
   </div>`;
   const m = $('#mCheck'); if (m && !quiet) setTimeout(() => m.focus(), 50);
   if (m) m.onclick = () => doCheckIn(t.ticketNo, m);
   const u = $('#mUndo'); if (u) u.onclick = () => doUndo(t.ticketNo, u);
-  $('#mEdit').onclick = () => editTicket(t.ticketNo);
+  const ed = $('#mEdit'); if (ed) ed.onclick = () => editTicket(t.ticketNo);
 }
 $('#modal').addEventListener('click', e => { if (e.target.hasAttribute('data-close')) closeModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#modal').innerHTML) closeModal(); });
@@ -625,7 +631,7 @@ function editTicket(no){
 /* -------------------------------- sell -------------------------------- */
 function setSeg(sel, v){ $$(sel+' button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); }
 $('#segType').onclick = e => { const b = e.target.closest('button'); if (b){ sellType = b.dataset.v; setSeg('#segType', sellType); paintSellBtn(); } };
-$('#segSale').onclick = e => { const b = e.target.closest('button'); if (b){ sellSale = b.dataset.v; setSeg('#segSale', sellSale); $('#fCheckNow').checked = sellSale === 'On-spot'; } };
+$('#segSale').onclick = e => { const b = e.target.closest('button'); if (b){ sellSale = b.dataset.v; setSeg('#segSale', sellSale); } };
 function paintSellBtn(){ const b = $('#sellBtn'); b.classList.toggle('gold', sellType === 'Golden'); b.textContent = 'Save ' + (sellType === 'Golden' ? '★ Golden' : 'Regular') + ' ticket'; }
 function renderSellHint(){
   const raw = $('#fNo').value.trim(), n = parseInt(raw, 10), note = $('#noNote');
@@ -638,14 +644,13 @@ $('#fNo').addEventListener('input', renderSellHint);
 function resetSell(){
   ['#fNo','#fName','#fPhone','#fEmail','#fParent','#fParentPhone','#fNotes'].forEach(s => $(s).value = '');
   $('#sellErr').classList.add('hidden'); $('#sellForm').classList.remove('hidden'); $('#sellDone').classList.add('hidden');
-  $('#fCheckNow').checked = sellSale === 'On-spot';
   renderSellHint(); paintSellBtn();
 }
 $('#sellAgain').onclick = () => { resetSell(); $('#fNo').focus(); };
 $('#sellBtn').onclick = async () => {
   const err = $('#sellErr'); err.classList.add('hidden');
   const data = { type:sellType, saleType:sellSale, ticketNo:$('#fNo').value.trim(), name:$('#fName').value, phone:$('#fPhone').value,
-    email:$('#fEmail').value, parentName:$('#fParent').value, parentPhone:$('#fParentPhone').value, notes:$('#fNotes').value, checkInNow:$('#fCheckNow').checked };
+    email:$('#fEmail').value, parentName:$('#fParent').value, parentPhone:$('#fParentPhone').value, notes:$('#fNotes').value };
   const problems = [];
   if (data.ticketNo && !/^\d+$/.test(data.ticketNo)) problems.push('Ticket number must be digits only.');
   if (!data.name.trim()) problems.push('Name is required.');
@@ -700,6 +705,7 @@ $('#exportBtn').onclick = () => {
 
 /* -------------------------------- tabs -------------------------------- */
 function switchTab(name){
+  if (name === 'sell' && !canSell()) name = 'checkin';
   $$('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name));
   ['checkin','sell','overview'].forEach(n => $('#tab-'+n).classList.toggle('hidden', n !== name));
   store.set('tab', name);
@@ -719,16 +725,26 @@ $('#qClear').onclick = () => { $('#q').value = ''; renderResults(); $('#q').focu
 $('#syncBtn').onclick = () => refresh(true);
 $('#deskBtn').onclick = () => { if (confirm('Sign this device out? You will need the PIN again.')) logout(); };
 
+/* -------------------------------- roles -------------------------------- */
+function setRole(role){ session.role = role; store.set('role', role); applyRole(); renderAll(); }
+function applyRole(){
+  const sales = canSell();
+  $('.tab[data-tab="sell"]').classList.toggle('hidden', !sales);
+  $('#lookupTab').textContent = sales ? 'Look up' : 'Check in';
+  if (!sales && !$('#tab-sell').classList.contains('hidden')) switchTab('checkin');
+  $('#deskBtn').textContent = session.desk + (sales ? '' : ' · Check-in') + ' ⇄';
+}
+
 /* -------------------------------- login -------------------------------- */
 function logout(msg){
-  store.del('pin'); session.pin = ''; tickets = []; byNo = new Map(); lastSync = 0;
+  store.del('pin'); store.del('role'); session.pin = ''; session.role = 'checkin'; tickets = []; byNo = new Map(); lastSync = 0;
   $('#app').classList.add('hidden'); $('#login').classList.remove('hidden');
   $('#deskName').value = session.desk;
   const e = $('#loginErr'); if (msg){ e.textContent = msg; e.classList.remove('hidden'); } else e.classList.add('hidden');
 }
 async function start(){
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
-  $('#deskBtn').textContent = session.desk + ' ⇄';
+  applyRole();
   switchTab(store.get('tab') || 'checkin');
   resetSell();
   await refresh();
@@ -737,10 +753,10 @@ $('#loginBtn').onclick = async () => {
   const desk = $('#deskName').value.trim(), pin = $('#pin').value.trim(), e = $('#loginErr');
   if (!desk || !pin){ e.textContent = 'Enter a desk name and the PIN.'; e.classList.remove('hidden'); return; }
   const b = $('#loginBtn'); b.disabled = true; b.textContent = 'Checking…';
-  session = { desk, pin };
+  session = { desk, pin, role: 'checkin' };
   try{
     const r = await api('ping');
-    if (r.ok){ store.set('desk', desk); store.set('pin', pin); $('#pin').value = ''; start(); }
+    if (r.ok){ store.set('desk', desk); store.set('pin', pin); session.role = r.role || 'sales'; store.set('role', session.role); $('#pin').value = ''; start(); }
     else { e.textContent = r.error || 'Wrong PIN.'; e.classList.remove('hidden'); session.pin = ''; }
   }catch(err){ e.textContent = 'Could not reach the ticket sheet. Check the internet connection.'; e.classList.remove('hidden'); session.pin = ''; }
   b.disabled = false; b.textContent = 'Start';
@@ -751,7 +767,7 @@ $('#pin').addEventListener('keydown', e => { if (e.key === 'Enter') $('#loginBtn
 document.title = CFG.EVENT_NAME + ' · Ticket Desk';
 $('#eventName').textContent = CFG.EVENT_NAME;
 $('#loginTitle').textContent = CFG.EVENT_NAME + ' Ticket Desk';
-if (DEMO){ $('#demoBar').classList.remove('hidden'); $('#pin').placeholder = 'Demo PIN: 1234'; }
+if (DEMO){ $('#demoBar').classList.remove('hidden'); $('#pin').placeholder = 'Demo PINs: 1234 sales, 5678 check-in'; }
 if (session.desk && session.pin) start(); else logout();
 })();
 </script>

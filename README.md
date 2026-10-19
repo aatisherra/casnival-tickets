@@ -19,6 +19,9 @@ written straight into a Google Sheet the whole team can open.
   can never be given the same number.
 - **Overview:** arrivals, Regular vs Golden, presale vs on-spot, check-ins per
   desk, and a CSV backup download.
+- **Two PINs:** the **sales PIN** can sell, edit and look up tickets, but can't check
+  anyone in. The **check-in PIN** can only look up and check in tickets. Gate
+  volunteers never see the Sell tab, and sales desks never see a Check in button.
 - **Excel copy (optional):** Excel can load all the tickets from a PIN-protected
   link and refresh them every few minutes. The Google Sheet stays the real
   record, and the Excel copy is for viewing only.
@@ -46,11 +49,16 @@ Open the `casnival-checkin` folder. Inside are `index.html`, `config.js`,
    - **Windows:** right-click it, then **Open with → Notepad**.
 6. Select all the text (**Cmd+A** on Mac, **Ctrl+A** on Windows) and copy it (**Cmd+C** / **Ctrl+C**).
 7. Go back to the Apps Script tab. Click inside the editor, select everything there, delete it, and paste your copied code.
-8. **Set your PIN.** Near the top, find this line:
+8. **Set your two PINs.** Near the top, find these lines:
    ```
-   const PIN = 'CHANGE-ME-2026';
+   const SALES_PIN   = 'CHANGE-ME-SALES';
+   const CHECKIN_PIN = 'CHANGE-ME-GATE';
    ```
-   Replace `CHANGE-ME-2026` with your own PIN, keeping the quote marks, e.g. `'cas-gold-4821'`. Use only letters, numbers and dashes, because the PIN also goes into the Excel link in Part 9. Write it down, because every volunteer will need it.
+   Replace each one with your own PIN, keeping the quote marks, e.g. `'cas-sell-4821'` and `'cas-gate-7390'`.
+   - **Sales PIN:** for the sales desk and organisers. It can sell, edit, look up tickets, and open the Excel link in Part 9. It **can't** check anyone in.
+   - **Check-in PIN:** for gate volunteers. It can only look up and check in tickets.
+
+   Make them different. Use only letters, numbers and dashes, because the sales PIN also goes into the Excel link. Write both down.
 9. Click the **💾 Save** icon, or press **Cmd+S** / **Ctrl+S**.
 
 ## Part 2: Run the setup once
@@ -71,7 +79,7 @@ Open the `casnival-checkin` folder. Inside are `index.html`, `config.js`,
    - **Execute as:** `Me`
    - **Who has access:** `Anyone`
 
-   "Anyone" is needed so that phones can connect without signing in to Google. The PIN is what keeps strangers out.
+   "Anyone" is needed so that phones can connect without signing in to Google. The PINs are what keep strangers out.
 4. Click **Deploy**. If it asks for permission again, allow it the same way as before.
 5. You'll get a **Web app URL** that starts with `https://script.google.com/macros/s/` and ends with `/exec`. Click **Copy** and paste it into a note somewhere. You'll need it in Part 5.
 6. Click **Done**.
@@ -116,18 +124,19 @@ Open the `casnival-checkin` folder. Inside are `index.html`, `config.js`,
 
 ## Part 7: Test it properly
 
-1. On the site, type a desk name like `Test laptop` and your PIN, then press **Start**. The grey "Demo mode" bar should **not** appear. If it does, `config.js` wasn't saved properly.
+1. On the site, type a desk name like `Test laptop` and your **sales PIN**, then press **Start**. The grey "Demo mode" bar should **not** appear. If it does, `config.js` wasn't saved properly.
 2. Go to **Sell ticket**. Pick Golden, type a fake name and a fake phone number of **at least 7 digits** (shorter numbers are rejected), and press **Save**.
 3. Open your Google Sheet. The row should be there with a yellow background.
-4. Go back to **Check in**, search the fake name, tap it and press **Check in**. The row in the sheet should turn green.
-5. Open the site on your phone as well. The same ticket should show there, which proves the devices are syncing.
-6. Try checking the same ticket in again. You should get the red **Already checked in** warning.
-7. **Delete the test ticket before real sales start.** In the sheet, right-click the row number of the test row and choose **Delete row**. Otherwise real tickets will start from #2. This is the one time you should edit the sheet by hand; after this, every change goes through the website.
+4. Go to **Look up**, search the fake name and tap it. There should be **no** Check in button, only a note saying the gate checks people in.
+5. **Switch to the check-in PIN.** Tap the desk name at the top right to sign out, then sign in again with the **check-in PIN**. The **Sell ticket** tab should be gone, the first tab should say **Check in**, and the desk name should show `· Check-in`.
+6. Search the fake name, tap it and press **Check in**. The row in the sheet should turn green.
+7. Open the site on your phone as well, signed in with either PIN. The same ticket should show there, which proves the devices are syncing. On the check-in PIN, try checking it in again. You should get the red **Already checked in** warning.
+8. **Delete the test ticket before real sales start.** In the sheet, right-click the row number of the test row and choose **Delete row**. Otherwise real tickets will start from #2. This is the one time you should edit the sheet by hand; after this, every change goes through the website.
 
 ## Part 8: Set up the team
 
-1. **Phones:** send the site link and the PIN privately to desk volunteers, not to a big group chat.
-2. **Each device:** open the link, enter a desk name (`Gate 1`, `Gate 2`, `Sales desk`) and the PIN. It stays signed in after that.
+1. **Phones:** send the site link privately, not in a big group chat. Give the **check-in PIN** to gate volunteers and the **sales PIN** only to the sales desk and organisers.
+2. **Each device:** open the link, enter a desk name (`Gate 1`, `Gate 2`, `Sales desk`) and its PIN. It stays signed in after that.
 3. **Make it look like an app (optional):**
    - **iPhone:** open the link in Safari, tap **Share**, then **Add to Home Screen**.
    - **Android:** open it in Chrome, tap **⋮**, then **Add to Home screen**.
@@ -139,12 +148,12 @@ Excel reads the tickets from your script, so changes in Excel never touch the re
 data. You'll need desktop Excel on Windows or Mac.
 
 1. **Make your Excel link.** Take your Web app URL from Part 3 and add
-   `?format=csv&pin=` followed by your PIN to the end:
+   `?format=csv&pin=` followed by your **sales PIN** to the end. The check-in PIN won't work here:
    ```
-   https://script.google.com/macros/s/AKfy.../exec?format=csv&pin=cas-gold-4821
+   https://script.google.com/macros/s/AKfy.../exec?format=csv&pin=cas-sell-4821
    ```
 2. **Test it.** Paste the link into a browser. A file called `casnival-tickets.csv`
-   should download. If you see `Wrong PIN.` instead, check the PIN at the end of the link.
+   should download. If you see `Wrong PIN.` instead, check the sales PIN at the end of the link.
 3. **Load it into Excel.**
    - **Windows:** open a new workbook and click **Data → From Web**. Paste the link and click **OK**. If Excel asks how to connect, choose **Anonymous**, then **Connect**. When the preview appears, click **Load**.
    - **Mac:** open a new workbook and click **Data → Get Data (Power Query)**. If **Web** is in the list, choose it and follow the Windows steps. If it isn't, use the link from step 2 whenever you want a fresh copy: the CSV downloads and opens in Excel.
@@ -156,9 +165,9 @@ data. You'll need desktop Excel on Windows or Mac.
 
    It only refreshes while the workbook is open. You can also click **Data → Refresh All** at any time.
 5. **Save the workbook** somewhere only organisers can open. It contains phone numbers and,
-   inside the link, the PIN.
+   inside the link, the sales PIN.
 
-If you change the PIN later, update the link: right-click the query, choose **Edit**,
+If you change the sales PIN later, update the link: right-click the query, choose **Edit**,
 then **Source** (the ⚙️ next to it), and change the PIN at the end.
 
 ---
@@ -173,23 +182,26 @@ then **Source** (the ⚙️ next to it), and change the PIN at the end.
 
 | Problem | Fix |
 |---|---|
-| "Wrong PIN" | It must match the PIN in the script exactly. Capital letters count. |
+| "Wrong PIN" | It must match one of the two PINs in the script exactly. Capital letters count. |
+| "The check-in PIN can only check people in" | That device is signed in with the check-in PIN. Sign out (tap the desk name) and sign in with the sales PIN. |
+| No **Sell ticket** tab | Same as above: the device is using the check-in PIN. |
+| "The sales PIN can't check people in" or no **Check in** button | That device is signed in with the sales PIN. Send the person to the gate, or sign in with the check-in PIN. |
 | "Could not reach the ticket sheet" | Check that the URL in `config.js` ends in `/exec`, and that **Who has access** is set to **Anyone**. Opening the URL in a browser should show `CASnival ticket API is running.` |
 | Site still shows "Demo mode" | The URL isn't in `config.js`, or GitHub hasn't updated yet. Wait 2 minutes, then hard refresh with **Cmd+Shift+R** / **Ctrl+Shift+R**. |
-| You changed the script or the PIN | Go to **Deploy → Manage deployments**, click ✏️, set **Version** to **New version**, then **Deploy**. The link stays the same. If you changed the PIN, every device is signed out and needs the new PIN. |
+| You changed the script or a PIN | Go to **Deploy → Manage deployments**, click ✏️, set **Version** to **New version**, then **Deploy**. The link stays the same. Devices using a PIN you changed are signed out and need the new one. |
 | GitHub site shows a 404 | Wait a couple of minutes after turning on Pages, and make sure `index.html` is spelled exactly like that. |
 
 ## Privacy
 
 The sheet holds students' and parents' phone numbers and emails.
 
-- The website code is public, but **the data is not**. The script refuses every request without the PIN.
-- Don't post the PIN or the site link in big group chats. Only share them with the desk team.
-- The Excel workbook from Part 9 holds the same data and the PIN. Only share it with organisers.
+- The website code is public, but **the data is not**. The script refuses every request without one of the PINs.
+- Don't post the PINs or the site link in big group chats. The check-in PIN goes to gate volunteers, the sales PIN only to the sales desk and organisers.
+- The Excel workbook from Part 9 holds the same data and the sales PIN. Only share it with organisers.
 - Don't use Google's **File → Share → Publish to web** to connect Excel. It makes the whole sheet public.
-- After the event, change the PIN in the script and redeploy, or archive the deployment.
+- After the event, change both PINs in the script and redeploy, or archive the deployment.
 
 ## Trying it without the sheet
 
 If `API_URL` in `config.js` is empty, the site runs in **demo mode** with sample
-data stored only on that device. The demo PIN is `1234`.
+data stored only on that device. The demo PINs are `1234` (sales) and `5678` (check-in).

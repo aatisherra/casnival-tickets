@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#11172a">
+<meta name="robots" content="noindex, nofollow">
+<title>CASnival Ticket Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<script src="config.js"></script>
+<style>
+:root{
+  --bg:#f4f2ee; --surface:#ffffff; --surface-2:#f8f6f2; --line:#e3ded4; --fg:#151a2b; --muted:#646b7d;
+  --navy:#11172a; --navy-2:#1d2541; --accent:#e2452f; --accent-soft:#fde6e2;
+  --gold:#b98512; --gold-bg:#fff3d4; --gold-line:#ecd08a;
+  --ok:#17803d; --ok-bg:#e2f5e8; --warn:#b42318; --warn-bg:#fde8e7;
+  --radius:14px; --shadow:0 1px 2px rgba(17,23,42,.06),0 6px 20px rgba(17,23,42,.06);
+  --f-display:"Bricolage Grotesque",system-ui,sans-serif;
+  --f-body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#0c1020; --surface:#151b2f; --surface-2:#10162a; --line:#262f4a; --fg:#eef0f6; --muted:#9aa2b8;
+  --navy:#070a16; --navy-2:#151b2f; --accent:#ff6a52; --accent-soft:#3a1d1b;
+  --gold:#f2c14e; --gold-bg:#2e2510; --gold-line:#5c4818;
+  --ok:#4ccf7a; --ok-bg:#12301e; --warn:#ff7a6e; --warn-bg:#3a1614;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.25);
+  color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 var(--f-body);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.hidden{display:none!important}
+
+/* top bar */
+.top{background:var(--navy);color:#fff;padding:calc(10px + env(safe-area-inset-top)) 16px 0;position:sticky;top:0;z-index:20}
+.top-row{display:flex;align-items:center;gap:12px;max-width:980px;margin:0 auto}
+.brand{font:800 20px/1 var(--f-display);letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+.brand-mark{width:30px;height:30px;border-radius:8px;background:var(--accent);display:grid;place-items:center;font-size:16px}
+.brand small{display:block;font:500 11px/1.2 var(--f-body);color:#aab2cc;letter-spacing:.06em;text-transform:uppercase;margin-top:3px}
+.spacer{flex:1}
+.sync{display:flex;align-items:center;gap:6px;font-size:12px;color:#c4cae0;background:rgba(255,255,255,.07);padding:6px 10px;border-radius:999px;border:0}
+.dot{width:8px;height:8px;border-radius:50%;background:#4ccf7a;box-shadow:0 0 0 3px rgba(76,207,122,.2)}
+.dot.bad{background:#ff6a52;box-shadow:0 0 0 3px rgba(255,106,82,.25)}
+.dot.busy{background:#f2c14e;box-shadow:0 0 0 3px rgba(242,193,78,.25)}
+.desk{font-size:12px;color:#c4cae0;background:transparent;border:1px solid rgba(255,255,255,.18);padding:5px 10px;border-radius:999px}
+.tabs{display:flex;gap:4px;max-width:980px;margin:12px auto 0}
+.tab{flex:1;background:transparent;border:0;color:#aab2cc;padding:12px 8px 13px;font:600 14px var(--f-body);border-bottom:3px solid transparent}
+.tab.on{color:#fff;border-bottom-color:var(--accent)}
+.demo-bar{background:var(--gold-bg);color:var(--gold);border-bottom:1px solid var(--gold-line);text-align:center;font-size:12.5px;padding:7px 16px;font-weight:600}
+
+main{max-width:980px;margin:0 auto;padding:16px 16px calc(40px + env(safe-area-inset-bottom))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+
+/* stats strip */
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px}
+.stat{padding:10px 12px}
+.stat b{display:block;font:700 22px/1.1 var(--f-mono);letter-spacing:-.02em}
+.stat span{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.stat.gold b{color:var(--gold)}
+.stat.ok b{color:var(--ok)}
+
+/* search */
+.search{display:flex;align-items:center;gap:10px;padding:4px 6px 4px 14px}
+.search svg{flex:none;color:var(--muted)}
+.search input{flex:1;border:0;background:transparent;font-size:18px;padding:12px 0;outline:none;min-width:0}
+.clear{border:0;background:var(--surface-2);border-radius:10px;padding:8px 12px;color:var(--muted);font-weight:600}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 10px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;color:var(--muted)}
+.chip.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.chip.gold.on{background:var(--gold);border-color:var(--gold);color:#fff}
+.hint{font-size:13px;color:var(--muted);margin:2px 2px 10px}
+
+/* results */
+.results{display:flex;flex-direction:column;gap:8px}
+.row{display:flex;align-items:center;gap:14px;padding:12px 14px;text-align:left;width:100%;border:1px solid var(--line);background:var(--surface);border-radius:var(--radius)}
+.row:hover{border-color:var(--muted)}
+.row.golden{border-color:var(--gold-line);background:linear-gradient(90deg,var(--gold-bg),var(--surface) 55%)}
+.num{font:700 20px/1 var(--f-mono);min-width:64px;letter-spacing:-.02em}
+.num::before{content:"#";color:var(--muted);font-weight:500;margin-right:1px}
+.who{flex:1;min-width:0}
+.who b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who span{font-size:13px;color:var(--muted);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tags{display:flex;gap:6px;align-items:center;flex:none}
+.badge{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:4px 8px;border-radius:6px;white-space:nowrap}
+.badge.reg{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+.badge.gold{background:var(--gold);color:#fff}
+.badge.in{background:var(--ok-bg);color:var(--ok)}
+.badge.out{background:var(--surface-2);color:var(--muted)}
+.empty{padding:40px 16px;text-align:center;color:var(--muted)}
+mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px}
+
+/* sheet / modal */
+.overlay{position:fixed;inset:0;background:rgba(8,11,22,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center;animation:fade .15s}
+.sheet{width:100%;max-width:560px;max-height:92vh;overflow:auto;background:var(--surface);border-radius:20px 20px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom));animation:up .2s ease-out}
+@media (min-width:700px){.overlay{align-items:center}.sheet{border-radius:20px}}
+@keyframes up{from{transform:translateY(30px);opacity:0}}
+@keyframes fade{from{opacity:0}}
+.ticket-head{display:flex;align-items:flex-start;gap:14px;margin-bottom:14px}
+.big-num{font:700 46px/1 var(--f-mono);letter-spacing:-.03em}
+.big-num small{font-size:22px;color:var(--muted);font-weight:500}
+.ticket-head .badge{font-size:12px;padding:6px 10px;margin-top:6px}
+.close{margin-left:auto;border:0;background:var(--surface-2);width:36px;height:36px;border-radius:50%;font-size:18px;color:var(--muted);flex:none}
+.tname{font:700 24px/1.2 var(--f-display);margin:0 0 12px}
+.facts{display:grid;grid-template-columns:120px 1fr;gap:8px 12px;font-size:14px;margin:0 0 16px}
+.facts dt{color:var(--muted)}
+.facts dd{margin:0;word-break:break-word}
+.facts a{color:inherit}
+.status{border-radius:12px;padding:14px 16px;margin-bottom:14px;font-weight:600}
+.status.in{background:var(--warn-bg);color:var(--warn)}
+.status.in big{display:block;font:800 20px/1.2 var(--f-display);margin-bottom:2px}
+.status.ok{background:var(--ok-bg);color:var(--ok)}
+.status.ok big{display:block;font:800 22px/1.2 var(--f-display)}
+.btn{border:0;border-radius:12px;padding:15px 18px;font-weight:700;font-size:16px;width:100%;transition:transform .05s}
+.btn:active{transform:scale(.98)}
+.btn-main{background:var(--accent);color:#fff}
+.btn-main.gold{background:var(--gold)}
+.btn-ok{background:var(--ok);color:#fff}
+.btn-ghost{background:var(--surface-2);color:var(--fg);border:1px solid var(--line)}
+.btn[disabled]{opacity:.55;cursor:wait}
+.btn-row{display:flex;gap:8px;margin-top:8px}
+.btn-row .btn{font-size:14px;padding:12px}
+
+/* forms */
+.form{padding:18px}
+.form h2{font:800 22px/1.2 var(--f-display);margin:0 0 4px}
+.form .sub{color:var(--muted);font-size:14px;margin:0 0 18px}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:4px;margin-bottom:14px}
+.seg button{border:0;background:transparent;border-radius:9px;padding:11px;font-weight:700;color:var(--muted)}
+.seg button.on{background:var(--surface);color:var(--fg);box-shadow:var(--shadow)}
+.seg.type button.on[data-v="Golden"]{background:var(--gold);color:#fff}
+.lbl{display:block;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px}
+.field{margin-bottom:14px}
+.field input,.field textarea{width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:12px 13px;font-size:16px;outline:none}
+.field input:focus,.field textarea:focus{border-color:var(--accent);background:var(--surface)}
+.field .note{font-size:12.5px;color:var(--muted);margin-top:5px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.section-t{font:700 13px var(--f-body);color:var(--fg);margin:6px 0 10px;padding-top:12px;border-top:1px dashed var(--line)}
+.check{display:flex;align-items:center;gap:10px;font-weight:600;margin:4px 0 16px}
+.check input{width:20px;height:20px;accent-color:var(--accent)}
+.err{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px;font-weight:600;font-size:14px;margin-bottom:12px}
+.done{text-align:center;padding:30px 20px}
+.done .big-num{font-size:72px;margin:8px 0}
+.done p{color:var(--muted);margin:0 0 20px}
+
+/* overview */
+.ov{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-bottom:12px}
+.ov .card{padding:16px}
+.ov h3{margin:0 0 10px;font:700 13px var(--f-body);text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.bar{height:10px;border-radius:99px;background:var(--surface-2);overflow:hidden;border:1px solid var(--line);margin:8px 0 4px}
+.bar i{display:block;height:100%;background:var(--ok);border-radius:99px;transition:width .4s}
+.bar.g i{background:var(--gold)}
+.kv{display:flex;justify-content:space-between;font-size:14px;padding:5px 0;border-bottom:1px solid var(--line)}
+.kv:last-child{border:0}
+.kv b{font-family:var(--f-mono)}
+.big-stat{font:700 34px/1 var(--f-mono)}
+.big-stat small{font-size:15px;color:var(--muted);font-weight:500}
+.feed .kv span{color:var(--muted)}
+
+/* login */
+.login{max-width:420px;margin:8vh auto;padding:24px}
+.login .brand-mark{width:44px;height:44px;font-size:22px;border-radius:12px;margin-bottom:14px}
+.login h1{font:800 26px/1.15 var(--f-display);margin:0 0 6px}
+
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:12px 18px;border-radius:12px;font-weight:600;z-index:80;box-shadow:var(--shadow);max-width:90vw;animation:up .2s}
+.toast.bad{background:var(--warn);color:#fff}
+
+@media (max-width:560px){
+  .strip{grid-template-columns:repeat(2,1fr)}
+  .grid2{grid-template-columns:1fr}
+  .facts{grid-template-columns:105px 1fr}
+  .brand small{display:none}
+  .desk{display:none}
+  .row{gap:10px;padding:12px}
+  .num{min-width:48px;font-size:18px}
+  .tags{flex-direction:column;align-items:flex-end;gap:4px}
+  .badge.reg{display:none}
+  .badge .t{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<section id="login" class="hidden">
+  <div class="login card">
+    <div class="brand-mark">🎟</div>
+    <h1 id="loginTitle">Ticket Desk</h1>
+    <p class="sub" style="color:var(--muted);margin:0 0 20px">Sign this device in to sell and check in tickets.</p>
+    <div id="loginErr" class="err hidden"></div>
+    <div class="field">
+      <label class="lbl" for="deskName">Desk / device name</label>
+      <input id="deskName" placeholder="e.g. Gate 1, Sales desk 2" maxlength="40" autocomplete="off">
+      <div class="note">Shows up in the sheet next to every sale and check-in.</div>
+    </div>
+    <div class="field">
+      <label class="lbl" for="pin">Team PIN</label>
+      <input id="pin" type="password" placeholder="PIN from the organisers" autocomplete="off">
+    </div>
+    <button class="btn btn-main" id="loginBtn">Start</button>
+  </div>
+</section>
+
+<!-- App -->
+<div id="app" class="hidden">
+  <header class="top">
+    <div class="top-row">
+      <div class="brand"><span class="brand-mark">🎟</span><div><span id="eventName">CASnival</span><small>Ticket desk</small></div></div>
+      <div class="spacer"></div>
+      <button class="sync" id="syncBtn" title="Refresh now"><span class="dot" id="syncDot"></span><span id="syncText">Syncing…</span></button>
+      <button class="desk" id="deskBtn" title="Switch desk"></button>
+    </div>
+    <nav class="tabs">
+      <button class="tab on" data-tab="checkin">Check in</button>
+      <button class="tab" data-tab="sell">Sell ticket</button>
+      <button class="tab" data-tab="overview">Overview</button>
+    </nav>
+  </header>
+  <div class="demo-bar hidden" id="demoBar">Demo mode — data is saved only on this device. Add your script URL in config.js to go live.</div>
+
+  <main>
+    <!-- CHECK IN -->
+    <section id="tab-checkin">
+      <div class="strip">
+        <div class="card stat"><b id="sSold">0</b><span>Sold</span></div>
+        <div class="card stat ok"><b id="sIn">0</b><span>Checked in</span></div>
+        <div class="card stat"><b id="sLeft">0</b><span>Yet to arrive</span></div>
+        <div class="card stat gold"><b id="sGold">0</b><span>Golden in</span></div>
+      </div>
+      <div class="card search">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" inputmode="search" placeholder="Ticket no., name, phone, email, parent…" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button class="clear hidden" id="qClear">Clear</button>
+      </div>
+      <div class="filters">
+        <button class="chip on" data-ft="all">All types</button>
+        <button class="chip" data-ft="Regular">Regular</button>
+        <button class="chip gold" data-ft="Golden">Golden</button>
+        <span style="width:8px"></span>
+        <button class="chip on" data-fs="all">Any status</button>
+        <button class="chip" data-fs="out">Not in yet</button>
+        <button class="chip" data-fs="in">Checked in</button>
+      </div>
+      <div class="hint" id="hint"></div>
+      <div class="results" id="results"></div>
+    </section>
+
+    <!-- SELL -->
+    <section id="tab-sell" class="hidden">
+      <div class="card form" id="sellForm">
+        <h2>Sell a ticket</h2>
+        <p class="sub">The sheet updates the moment you save.</p>
+        <div id="sellErr" class="err hidden"></div>
+
+        <label class="lbl">Ticket type</label>
+        <div class="seg type" id="segType">
+          <button data-v="Regular" class="on">Regular</button>
+          <button data-v="Golden">★ Golden</button>
+        </div>
+        <label class="lbl">Sale</label>
+        <div class="seg" id="segSale">
+          <button data-v="Presale" class="on">Presale</button>
+          <button data-v="On-spot">On-spot</button>
+        </div>
+
+        <div class="field">
+          <label class="lbl" for="fNo">Ticket number</label>
+          <input id="fNo" inputmode="numeric" pattern="[0-9]*" placeholder="Number printed on the ticket">
+          <div class="note" id="noNote"></div>
+        </div>
+
+        <div class="section-t">Ticket holder</div>
+        <div class="field"><label class="lbl" for="fName">Name *</label><input id="fName" autocomplete="off" autocapitalize="words"></div>
+        <div class="grid2">
+          <div class="field"><label class="lbl" for="fPhone">Phone *</label><input id="fPhone" type="tel" inputmode="tel" autocomplete="off"></div>
+          <div class="field"><label class="lbl" for="fEmail">Email</label><input id="fEmail" type="email" inputmode="email" autocomplete="off" autocapitalize="off"></div>
+        </div>
+        <div class="section-t">Parent</div>
+        <div class="grid2">
+          <div class="field"><label class="lbl" for="fParent">Parent name</label><input id="fParent" autocomplete="off" autocapitalize="words"></div>
+          <div class="field"><label class="lbl" for="fParentPhone">Parent phone</label><input id="fParentPhone" type="tel" inputmode="tel" autocomplete="off"></div>
+        </div>
+        <div class="field"><label class="lbl" for="fNotes">Notes</label><input id="fNotes" autocomplete="off" placeholder="Optional — e.g. paid by UPI"></div>
+        <label class="check"><input type="checkbox" id="fCheckNow"> Check them in right now</label>
+        <button class="btn btn-main" id="sellBtn">Save ticket</button>
+      </div>
+      <div class="card done hidden" id="sellDone">
+        <div class="lbl" id="doneLbl">Ticket saved</div>
+        <div class="big-num" id="doneNum"></div>
+        <p id="doneWho"></p>
+        <button class="btn btn-main" id="sellAgain">Sell another</button>
+      </div>
+    </section>
+
+    <!-- OVERVIEW -->
+    <section id="tab-overview" class="hidden">
+      <div class="ov" id="ovCards"></div>
+      <div class="ov">
+        <div class="card feed"><h3>Latest check-ins</h3><div id="feedIn"></div></div>
+        <div class="card feed"><h3>Latest sales</h3><div id="feedSold"></div></div>
+      </div>
+      <div class="btn-row" style="max-width:420px">
+        <button class="btn btn-ghost" id="exportBtn">Download CSV backup</button>
+      </div>
+      <p class="hint" style="margin-top:10px">Keep a fresh backup on one phone before gates open, in case the internet drops.</p>
+    </section>
+  </main>
+</div>
+
+<div id="modal"></div>
+<div id="toastBox"></div>
+
+<script>
+(() => {
+'use strict';
+const CFG = Object.assign({ API_URL:'', EVENT_NAME:'CASnival 2026', REFRESH_SECONDS:10 }, window.CASNIVAL_CONFIG || {});
+const DEMO = !CFG.API_URL;
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const store = {
+  get(k){ try{ return localStorage.getItem('casnival.'+k); }catch(e){ return null; } },
+  set(k,v){ try{ localStorage.setItem('casnival.'+k,v); }catch(e){} },
+  del(k){ try{ localStorage.removeItem('casnival.'+k); }catch(e){} }
+};
+
+let session = { desk: store.get('desk') || '', pin: store.get('pin') || '' };
+let tickets = [];          // all tickets from the sheet
+let byNo = new Map();
+let lastSync = 0, syncing = false, syncFailed = false;
+let filterType = 'all', filterStatus = 'all';
+let sellType = 'Regular', sellSale = 'Presale';
+let openNo = null;
+
+/* --------------------------------- API --------------------------------- */
+async function api(action, payload = {}){
+  if (DEMO) return demoApi(action, payload);
+  const body = JSON.stringify(Object.assign({ action, pin: session.pin, device: session.desk }, payload));
+  const res = await fetch(CFG.API_URL, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body, redirect:'follow' });
+  if (!res.ok) throw new Error('Server error ' + res.status);
+  return res.json();
+}
+
+/* Demo backend (same rules as the real script, stored on this device) */
+function demoDb(){
+  let db; try{ db = JSON.parse(store.get('demo') || 'null'); }catch(e){}
+  if (!db){
+    const names = [['Aarav Reddy','Sunita Reddy'],['Diya Sharma','Rakesh Sharma'],['Ishaan Rao','Lakshmi Rao'],['Meera Iyer','Venkat Iyer'],['Kabir Mehta','Pooja Mehta'],['Ananya Gupta','Rohit Gupta'],['Vihaan Naidu','Kavitha Naidu'],['Saanvi Kapoor','Arjun Kapoor'],['Reyansh Varma','Deepa Varma'],['Aditi Joshi','Manoj Joshi'],['Arjun Pillai','Rekha Pillai'],['Tara Menon','Suresh Menon']];
+    const now = Date.now();
+    db = names.map(([n,p],i) => ({
+      ticketNo:i+1, type: i%4===1 ? 'Golden':'Regular', name:n, phone:'98480'+String(10000+i*731).slice(-5),
+      email:n.toLowerCase().replace(' ','.')+'@example.com', parentName:p, parentPhone:'99490'+String(20000+i*517).slice(-5),
+      saleType:'Presale', soldBy:'Sales desk 1', soldAt:new Date(now-86400000*(12-i)).toISOString(),
+      checkedIn: i<3, checkedInAt: i<3 ? new Date(now-60000*(20-i*4)).toISOString() : '', checkedInBy: i<3 ? 'Gate 1':'', notes:''
+    }));
+    store.set('demo', JSON.stringify(db));
+  }
+  return db;
+}
+async function demoApi(action, p){
+  await new Promise(r => setTimeout(r, 250));
+  if (session.pin !== '1234') return { ok:false, authError:true, error:'Wrong PIN. (Demo PIN is 1234)' };
+  const db = demoDb(); const save = () => store.set('demo', JSON.stringify(db));
+  const find = n => db.find(t => t.ticketNo === Number(n));
+  const dev = session.desk;
+  if (action === 'ping') return { ok:true };
+  if (action === 'list') return { ok:true, tickets: db };
+  if (action === 'sell'){
+    const d = p.data; const name = (d.name||'').trim(), phone = (d.phone||'').replace(/[^\d+]/g,'');
+    if (!name) return { ok:false, error:'Name is required.' };
+    if (!phone) return { ok:false, error:'Phone number is required.' };
+    let no;
+    if (String(d.ticketNo||'').trim()){ no = parseInt(d.ticketNo,10); if (!(no>0)) return {ok:false,error:'Ticket number must be a positive whole number.'}; if (find(no)) return { ok:false, duplicate:true, error:'Ticket #'+no+' has already been sold.' }; }
+    else no = db.reduce((m,t)=>Math.max(m,t.ticketNo),0)+1;
+    const now = new Date().toISOString();
+    const t = { ticketNo:no, type:d.type, name, phone, email:(d.email||'').trim(), parentName:(d.parentName||'').trim(), parentPhone:(d.parentPhone||'').replace(/[^\d+]/g,''), saleType:d.saleType, soldBy:dev, soldAt:now, checkedIn:!!d.checkInNow, checkedInAt:d.checkInNow?now:'', checkedInBy:d.checkInNow?dev:'', notes:(d.notes||'').trim() };
+    db.push(t); db.sort((a,b)=>a.ticketNo-b.ticketNo); save(); return { ok:true, ticket:t };
+  }
+  const t = find(p.ticketNo);
+  if (!t) return { ok:false, error:'Ticket #'+p.ticketNo+' was not found.' };
+  if (action === 'checkin'){ if (t.checkedIn) return { ok:false, already:true, ticket:t, error:'Already checked in.' }; Object.assign(t,{checkedIn:true,checkedInAt:new Date().toISOString(),checkedInBy:dev}); save(); return { ok:true, ticket:t }; }
+  if (action === 'undo'){ Object.assign(t,{checkedIn:false,checkedInAt:'',checkedInBy:''}); save(); return { ok:true, ticket:t }; }
+  if (action === 'update'){ for (const k of ['type','name','phone','email','parentName','parentPhone','notes']) if (p.data[k]!==undefined) t[k]=String(p.data[k]).trim(); save(); return { ok:true, ticket:t }; }
+  return { ok:false, error:'Unknown action.' };
+}
+
+/* ------------------------------- helpers ------------------------------- */
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const digits = s => String(s||'').replace(/\D/g,'');
+function fmtTime(iso){
+  if (!iso) return '';
+  const d = new Date(iso); if (isNaN(d)) return iso;
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const time = d.toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'});
+  return sameDay ? time : d.toLocaleDateString('en-IN',{day:'numeric',month:'short'}) + ', ' + time;
+}
+function toast(msg, bad){
+  const el = document.createElement('div'); el.className = 'toast' + (bad?' bad':''); el.textContent = msg;
+  $('#toastBox').replaceChildren(el); setTimeout(() => el.remove(), 2600);
+}
+function setTickets(list){
+  tickets = list.slice().sort((a,b)=>a.ticketNo-b.ticketNo);
+  byNo = new Map(tickets.map(t => [t.ticketNo, t]));
+}
+function upsert(t){ byNo.set(t.ticketNo, t); setTickets([...byNo.values()]); }
+function nextFree(){ let m = 0; for (const t of tickets) if (t.ticketNo > m) m = t.ticketNo; return m + 1; }
+
+/* -------------------------------- sync -------------------------------- */
+async function refresh(manual){
+  if (syncing) return; syncing = true; paintSync();
+  try{
+    const r = await api('list');
+    if (r.authError){ logout(r.error); return; }
+    if (!r.ok) throw new Error(r.error);
+    setTickets(r.tickets); lastSync = Date.now(); syncFailed = false;
+    renderAll();
+    if (manual) toast('Up to date');
+  }catch(e){ syncFailed = true; if (manual) toast('Could not reach the sheet — check internet', true); }
+  finally{ syncing = false; paintSync(); }
+}
+function paintSync(){
+  const dot = $('#syncDot'), txt = $('#syncText');
+  dot.className = 'dot' + (syncing ? ' busy' : syncFailed ? ' bad' : '');
+  if (syncing && !lastSync) txt.textContent = 'Loading…';
+  else if (syncFailed) txt.textContent = 'Offline';
+  else if (DEMO) txt.textContent = 'Demo';
+  else { const s = Math.round((Date.now()-lastSync)/1000); txt.textContent = s < 5 ? 'Live' : 'Synced ' + (s<60 ? s+'s' : Math.round(s/60)+'m') + ' ago'; }
+}
+setInterval(() => { paintSync(); if (!document.hidden && session.pin && Date.now()-lastSync > CFG.REFRESH_SECONDS*1000) refresh(); }, 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && session.pin) refresh(); });
+
+/* ------------------------------- search ------------------------------- */
+function search(q){
+  q = q.trim().toLowerCase();
+  let list = tickets.filter(t =>
+    (filterType === 'all' || t.type === filterType) &&
+    (filterStatus === 'all' || (filterStatus === 'in') === t.checkedIn));
+  if (!q) return list;
+  const qd = digits(q);
+  const isNum = /^[#\s\d+-]+$/.test(q) && qd.length > 0;
+  const scored = [];
+  for (const t of list){
+    let s = 0;
+    if (isNum){
+      if (String(t.ticketNo) === qd) s = 100;
+      else if (qd.length >= 3 && (digits(t.phone).includes(qd) || digits(t.parentPhone).includes(qd))) s = 50;
+      else if (String(t.ticketNo).startsWith(qd)) s = 10;
+    } else {
+      const hay = (t.name+' '+t.email+' '+t.parentName+' '+t.notes).toLowerCase();
+      const toks = q.split(/\s+/);
+      if (toks.every(k => hay.includes(k))){
+        s = 20;
+        if (t.name.toLowerCase().startsWith(q)) s = 40;
+        else if (t.name.toLowerCase().split(' ').some(w => w.startsWith(toks[0]))) s = 30;
+      }
+    }
+    if (s) scored.push([s,t]);
+  }
+  return scored.sort((a,b) => b[0]-a[0] || a[1].ticketNo-b[1].ticketNo).map(x => x[1]);
+}
+function hl(text, q){
+  text = String(text||''); q = q.trim();
+  if (!q || /^[#\s\d+-]+$/.test(q)) return esc(text);
+  let out = esc(text);
+  for (const tok of q.split(/\s+/).filter(Boolean)){
+    const re = new RegExp('(' + tok.replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/&/g,'&amp;') + ')', 'ig');
+    out = out.replace(re, '<mark>$1</mark>');
+  }
+  return out;
+}
+
+/* ------------------------------- render ------------------------------- */
+function renderAll(){ renderStats(); renderResults(); renderSellHint(); renderOverview(); if (openNo != null && byNo.has(openNo) && !$('#modal .editing')) openTicket(openNo, true); }
+
+function counts(){
+  const c = { sold:0, in:0, reg:0, regIn:0, gold:0, goldIn:0, pre:0, spot:0 };
+  for (const t of tickets){
+    c.sold++; if (t.checkedIn) c.in++;
+    if (t.type === 'Golden'){ c.gold++; if (t.checkedIn) c.goldIn++; } else { c.reg++; if (t.checkedIn) c.regIn++; }
+    if (t.saleType === 'On-spot') c.spot++; else c.pre++;
+  }
+  return c;
+}
+function renderStats(){
+  const c = counts();
+  $('#sSold').textContent = c.sold; $('#sIn').textContent = c.in;
+  $('#sLeft').textContent = c.sold - c.in; $('#sGold').textContent = c.goldIn + '/' + c.gold;
+}
+function renderResults(){
+  const q = $('#q').value;
+  const list = search(q);
+  $('#qClear').classList.toggle('hidden', !q);
+  const shown = list.slice(0, 60);
+  $('#hint').textContent = !tickets.length ? '' :
+    q ? (list.length ? list.length + ' match' + (list.length>1?'es':'') + (list.length > 60 ? ' — showing first 60' : '') : '')
+      : 'Showing ' + shown.length + ' of ' + list.length + ' tickets. Type to search.';
+  if (!tickets.length && lastSync){ $('#results').innerHTML = '<div class="empty card">No tickets sold yet. Use <b>Sell ticket</b> to add the first one.</div>'; return; }
+  if (!list.length){
+    const n = digits(q);
+    $('#results').innerHTML = '<div class="empty card">' + (q ? 'Nothing matches “' + esc(q) + '”.' : 'No tickets in this filter.') +
+      (n && /^[#\s\d]+$/.test(q.trim()) ? '<br><br><button class="btn btn-main" style="max-width:280px" data-sellno="'+esc(n)+'">Sell ticket #'+esc(n)+' on the spot</button>' : '') + '</div>';
+    return;
+  }
+  $('#results').innerHTML = shown.map(t => `
+    <button class="row ${t.type==='Golden'?'golden':''}" data-no="${t.ticketNo}">
+      <span class="num">${t.ticketNo}</span>
+      <span class="who"><b>${hl(t.name,q)}</b><span>${t.parentName ? 'Parent: '+hl(t.parentName,q)+' · ' : ''}${esc(t.phone)}</span></span>
+      <span class="tags">${t.type==='Golden' ? '<span class="badge gold">★ Golden</span>' : '<span class="badge reg">Regular</span>'}
+      ${t.checkedIn ? '<span class="badge in">✓ In<span class="t"> '+esc(fmtTime(t.checkedInAt))+'</span></span>' : '<span class="badge out">Not in</span>'}</span>
+    </button>`).join('');
+}
+$('#results').addEventListener('click', e => {
+  const b = e.target.closest('[data-no]'); if (b) return openTicket(Number(b.dataset.no));
+  const s = e.target.closest('[data-sellno]'); if (s){ switchTab('sell'); resetSell(); $('#fNo').value = s.dataset.sellno; setSeg('#segSale','On-spot'); $('#fCheckNow').checked = true; renderSellHint(); $('#fName').focus(); }
+});
+
+/* ---------------------------- ticket sheet ---------------------------- */
+function closeModal(){ $('#modal').innerHTML = ''; openNo = null; }
+function openTicket(no, quiet){
+  const t = byNo.get(no); if (!t) return;
+  openNo = no;
+  const gold = t.type === 'Golden';
+  const status = t.checkedIn
+    ? `<div class="status in"><big>Already checked in</big>at ${esc(fmtTime(t.checkedInAt))}${t.checkedInBy ? ' by '+esc(t.checkedInBy) : ''}</div>`
+    : '';
+  const tel = p => p ? `<a href="tel:${esc(p)}">${esc(p)}</a>` : '—';
+  $('#modal').innerHTML = `
+  <div class="overlay" data-close>
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="ticket-head">
+        <div class="big-num"><small>#</small>${t.ticketNo}</div>
+        ${gold ? '<span class="badge gold">★ Golden</span>' : '<span class="badge reg">Regular</span>'}
+        <button class="close" data-close aria-label="Close">✕</button>
+      </div>
+      <h2 class="tname">${esc(t.name)}</h2>
+      ${status}
+      <dl class="facts">
+        <dt>Phone</dt><dd>${tel(t.phone)}</dd>
+        <dt>Email</dt><dd>${esc(t.email)||'—'}</dd>
+        <dt>Parent</dt><dd>${esc(t.parentName)||'—'}</dd>
+        <dt>Parent phone</dt><dd>${tel(t.parentPhone)}</dd>
+        <dt>Sold</dt><dd>${esc(t.saleType)}${t.soldAt ? ' · '+esc(fmtTime(t.soldAt)) : ''}${t.soldBy ? ' · '+esc(t.soldBy) : ''}</dd>
+        ${t.notes ? `<dt>Notes</dt><dd>${esc(t.notes)}</dd>` : ''}
+      </dl>
+      ${t.checkedIn
+        ? `<button class="btn btn-ghost" id="mClose" data-close>Close</button>`
+        : `<button class="btn btn-main ${gold?'gold':''}" id="mCheck">Check in ${gold?'★ Golden':'Regular'} ticket</button>`}
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="mEdit">Edit details</button>
+        ${t.checkedIn ? '<button class="btn btn-ghost" id="mUndo">Undo check-in</button>' : ''}
+      </div>
+    </div>
+  </div>`;
+  const m = $('#mCheck'); if (m && !quiet) setTimeout(() => m.focus(), 50);
+  if (m) m.onclick = () => doCheckIn(t.ticketNo, m);
+  const u = $('#mUndo'); if (u) u.onclick = () => doUndo(t.ticketNo, u);
+  $('#mEdit').onclick = () => editTicket(t.ticketNo);
+}
+$('#modal').addEventListener('click', e => { if (e.target.hasAttribute('data-close')) closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#modal').innerHTML) closeModal(); });
+
+async function doCheckIn(no, btn){
+  btn.disabled = true; btn.textContent = 'Checking in…';
+  try{
+    const r = await api('checkin', { ticketNo: no });
+    if (r.ticket) upsert(r.ticket);
+    if (r.ok){
+      const t = r.ticket;
+      $('#modal .sheet').innerHTML = `
+        <div class="done">
+          <div class="status ok" style="text-align:center"><big>✓ Checked in</big></div>
+          <div class="big-num" style="color:${t.type==='Golden'?'var(--gold)':'inherit'}"><small>#</small>${t.ticketNo}</div>
+          <h2 class="tname">${esc(t.name)}</h2>
+          <p>${t.type==='Golden' ? '★ Golden ticket' : 'Regular ticket'}</p>
+          <button class="btn btn-main" data-close id="nextBtn">Next person</button>
+        </div>`;
+      openNo = null;
+      const next = () => { closeModal(); $('#q').value = ''; renderResults(); $('#q').focus(); };
+      const nb = $('#nextBtn'); nb.removeAttribute('data-close'); nb.onclick = next; nb.focus();
+      renderAll();
+      setTimeout(() => { if ($('#nextBtn') === nb) next(); }, 3500);
+    } else if (r.already){ renderAll(); openTicket(no, true); toast('Already checked in!', true); }
+    else { toast(r.error || 'Could not check in', true); btn.disabled = false; btn.textContent = 'Try again'; }
+  }catch(e){ toast('No connection — try again', true); btn.disabled = false; btn.textContent = 'Try again'; }
+}
+async function doUndo(no, btn){
+  if (!confirm('Undo check-in for ticket #' + no + '?')) return;
+  btn.disabled = true;
+  try{ const r = await api('undo', { ticketNo: no }); if (r.ok){ upsert(r.ticket); renderAll(); openTicket(no, true); toast('Check-in undone'); } else toast(r.error, true); }
+  catch(e){ toast('No connection — try again', true); }
+  btn.disabled = false;
+}
+function editTicket(no){
+  const t = byNo.get(no); if (!t) return;
+  const f = (id,label,val,type='text') => `<div class="field"><label class="lbl" for="${id}">${label}</label><input id="${id}" type="${type}" value="${esc(val)}" autocomplete="off"></div>`;
+  $('#modal .sheet').innerHTML = `
+    <div class="editing">
+    <div class="ticket-head"><div class="big-num"><small>#</small>${t.ticketNo}</div><button class="close" data-close aria-label="Close">✕</button></div>
+    <div id="eErr" class="err hidden"></div>
+    <label class="lbl">Ticket type</label>
+    <div class="seg type" id="eType"><button data-v="Regular">Regular</button><button data-v="Golden">★ Golden</button></div>
+    ${f('eName','Name *',t.name)}
+    <div class="grid2">${f('ePhone','Phone *',t.phone,'tel')}${f('eEmail','Email',t.email,'email')}</div>
+    <div class="grid2">${f('eParent','Parent name',t.parentName)}${f('eParentPhone','Parent phone',t.parentPhone,'tel')}</div>
+    ${f('eNotes','Notes',t.notes)}
+    <button class="btn btn-main" id="eSave">Save changes</button>
+    <div class="btn-row"><button class="btn btn-ghost" id="eCancel">Cancel</button></div>
+    </div>`;
+  let type = t.type;
+  setSeg('#eType', type);
+  $('#eType').onclick = e => { const b = e.target.closest('button'); if (b){ type = b.dataset.v; setSeg('#eType', type); } };
+  $('#eCancel').onclick = () => openTicket(no, true);
+  $('#eSave').onclick = async () => {
+    const data = { type, name:$('#eName').value, phone:$('#ePhone').value, email:$('#eEmail').value, parentName:$('#eParent').value, parentPhone:$('#eParentPhone').value, notes:$('#eNotes').value };
+    if (!data.name.trim() || !digits(data.phone)) { const e = $('#eErr'); e.textContent = 'Name and phone are required.'; e.classList.remove('hidden'); return; }
+    const b = $('#eSave'); b.disabled = true; b.textContent = 'Saving…';
+    try{ const r = await api('update', { ticketNo: no, data }); if (r.ok){ upsert(r.ticket); renderAll(); openTicket(no, true); toast('Saved'); } else { toast(r.error, true); b.disabled=false; b.textContent='Save changes'; } }
+    catch(e){ toast('No connection — try again', true); b.disabled=false; b.textContent='Save changes'; }
+  };
+}
+
+/* -------------------------------- sell -------------------------------- */
+function setSeg(sel, v){ $$(sel+' button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); }
+$('#segType').onclick = e => { const b = e.target.closest('button'); if (b){ sellType = b.dataset.v; setSeg('#segType', sellType); paintSellBtn(); } };
+$('#segSale').onclick = e => { const b = e.target.closest('button'); if (b){ sellSale = b.dataset.v; setSeg('#segSale', sellSale); $('#fCheckNow').checked = sellSale === 'On-spot'; } };
+function paintSellBtn(){ const b = $('#sellBtn'); b.classList.toggle('gold', sellType === 'Golden'); b.textContent = 'Save ' + (sellType === 'Golden' ? '★ Golden' : 'Regular') + ' ticket'; }
+function renderSellHint(){
+  const raw = $('#fNo').value.trim(), n = parseInt(raw, 10), note = $('#noNote');
+  if (!raw) note.innerHTML = 'Leave blank to give the next free number: <b>#' + nextFree() + '</b>';
+  else if (!(n > 0) || String(n) !== raw) note.innerHTML = '<span style="color:var(--warn)">Numbers only.</span>';
+  else if (byNo.has(n)) note.innerHTML = '<span style="color:var(--warn)">#' + n + ' is already sold to ' + esc(byNo.get(n).name) + '.</span>';
+  else note.innerHTML = '<span style="color:var(--ok)">#' + n + ' is free.</span>';
+}
+$('#fNo').addEventListener('input', renderSellHint);
+function resetSell(){
+  ['#fNo','#fName','#fPhone','#fEmail','#fParent','#fParentPhone','#fNotes'].forEach(s => $(s).value = '');
+  $('#sellErr').classList.add('hidden'); $('#sellForm').classList.remove('hidden'); $('#sellDone').classList.add('hidden');
+  $('#fCheckNow').checked = sellSale === 'On-spot';
+  renderSellHint(); paintSellBtn();
+}
+$('#sellAgain').onclick = () => { resetSell(); $('#fNo').focus(); };
+$('#sellBtn').onclick = async () => {
+  const err = $('#sellErr'); err.classList.add('hidden');
+  const data = { type:sellType, saleType:sellSale, ticketNo:$('#fNo').value.trim(), name:$('#fName').value, phone:$('#fPhone').value,
+    email:$('#fEmail').value, parentName:$('#fParent').value, parentPhone:$('#fParentPhone').value, notes:$('#fNotes').value, checkInNow:$('#fCheckNow').checked };
+  const problems = [];
+  if (data.ticketNo && !/^\d+$/.test(data.ticketNo)) problems.push('Ticket number must be digits only.');
+  if (!data.name.trim()) problems.push('Name is required.');
+  if (digits(data.phone).length < 7) problems.push('Enter a valid phone number.');
+  if (data.email && !/^\S+@\S+\.\S+$/.test(data.email.trim())) problems.push('Email looks wrong.');
+  if (problems.length){ err.innerHTML = problems.map(esc).join('<br>'); err.classList.remove('hidden'); return; }
+  const b = $('#sellBtn'); b.disabled = true; b.textContent = 'Saving…';
+  try{
+    const r = await api('sell', { data });
+    if (r.ok){
+      upsert(r.ticket); renderAll();
+      $('#sellForm').classList.add('hidden'); $('#sellDone').classList.remove('hidden');
+      $('#doneLbl').textContent = (r.ticket.type === 'Golden' ? '★ Golden' : 'Regular') + ' ticket saved' + (r.ticket.checkedIn ? ' & checked in' : '');
+      $('#doneNum').innerHTML = '<small>#</small>' + r.ticket.ticketNo;
+      $('#doneNum').style.color = r.ticket.type === 'Golden' ? 'var(--gold)' : '';
+      $('#doneWho').textContent = r.ticket.name + (data.ticketNo ? '' : ' — write #' + r.ticket.ticketNo + ' on their ticket');
+      window.scrollTo(0,0);
+    } else { err.textContent = r.error || 'Could not save.'; err.classList.remove('hidden'); if (r.duplicate) refresh(); }
+  }catch(e){ err.textContent = 'No connection. Nothing was saved — check internet and press Save again.'; err.classList.remove('hidden'); }
+  b.disabled = false; paintSellBtn();
+};
+
+/* ------------------------------ overview ------------------------------ */
+function renderOverview(){
+  const c = counts(), pct = (a,b) => b ? Math.round(a/b*100) : 0;
+  const desks = {};
+  for (const t of tickets) if (t.checkedIn) desks[t.checkedInBy||'—'] = (desks[t.checkedInBy||'—']||0)+1;
+  $('#ovCards').innerHTML = `
+    <div class="card"><h3>Arrived</h3><div class="big-stat">${c.in}<small> / ${c.sold}</small></div><div class="bar"><i style="width:${pct(c.in,c.sold)}%"></i></div><div class="hint" style="margin:0">${pct(c.in,c.sold)}% of ticket holders are in</div></div>
+    <div class="card"><h3>By type</h3>
+      <div class="kv"><span>Regular checked in</span><b>${c.regIn} / ${c.reg}</b></div>
+      <div class="kv"><span>★ Golden checked in</span><b style="color:var(--gold)">${c.goldIn} / ${c.gold}</b></div>
+      <div class="bar g"><i style="width:${pct(c.goldIn,c.gold)}%"></i></div></div>
+    <div class="card"><h3>Sales</h3>
+      <div class="kv"><span>Presale</span><b>${c.pre}</b></div>
+      <div class="kv"><span>On-spot</span><b>${c.spot}</b></div>
+      <div class="kv"><span>Next free number</span><b>#${nextFree()}</b></div></div>
+    <div class="card"><h3>Check-ins by desk</h3>${Object.keys(desks).length ? Object.entries(desks).sort((a,b)=>b[1]-a[1]).map(([d,n]) => `<div class="kv"><span>${esc(d)}</span><b>${n}</b></div>`).join('') : '<div class="hint">None yet</div>'}</div>`;
+  const recent = (key, list) => list.length ? list.map(t => `<div class="kv"><span>#${t.ticketNo} · ${esc(t.name)}${t.type==='Golden'?' ★':''}</span><span>${esc(fmtTime(t[key]))}</span></div>`).join('') : '<div class="hint">None yet</div>';
+  $('#feedIn').innerHTML = recent('checkedInAt', tickets.filter(t => t.checkedIn).sort((a,b) => (b.checkedInAt||'').localeCompare(a.checkedInAt||'')).slice(0,8));
+  $('#feedSold').innerHTML = recent('soldAt', tickets.slice().sort((a,b) => (b.soldAt||'').localeCompare(a.soldAt||'')).slice(0,8));
+}
+$('#exportBtn').onclick = () => {
+  const cols = [['Ticket No','ticketNo'],['Type','type'],['Name','name'],['Phone','phone'],['Email','email'],['Parent Name','parentName'],['Parent Phone','parentPhone'],['Sale Type','saleType'],['Sold By','soldBy'],['Sold At','soldAt'],['Checked In','checkedIn'],['Checked In At','checkedInAt'],['Checked In By','checkedInBy'],['Notes','notes']];
+  const cell = v => { v = v === true ? 'Yes' : v === false ? 'No' : String(v ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
+  const csv = [cols.map(c=>c[0]).join(',')].concat(tickets.map(t => cols.map(c => cell(c[1].endsWith('At') ? fmtTime(t[c[1]]) : t[c[1]])).join(','))).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff'+csv], { type:'text/csv' }));
+  a.download = 'casnival-tickets-' + new Date().toISOString().slice(0,16).replace(/[:T]/g,'-') + '.csv';
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+/* -------------------------------- tabs -------------------------------- */
+function switchTab(name){
+  $$('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name));
+  ['checkin','sell','overview'].forEach(n => $('#tab-'+n).classList.toggle('hidden', n !== name));
+  store.set('tab', name);
+  if (name === 'checkin') setTimeout(() => $('#q').focus(), 30);
+  if (name === 'sell') renderSellHint();
+}
+$$('.tab').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
+$$('[data-ft]').forEach(b => b.onclick = () => { filterType = b.dataset.ft; $$('[data-ft]').forEach(x => x.classList.toggle('on', x===b)); renderResults(); });
+$$('[data-fs]').forEach(b => b.onclick = () => { filterStatus = b.dataset.fs; $$('[data-fs]').forEach(x => x.classList.toggle('on', x===b)); renderResults(); });
+$('#q').addEventListener('input', renderResults);
+$('#q').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const list = search($('#q').value);
+  if (list.length === 1 || (list.length && String(list[0].ticketNo) === digits($('#q').value))) openTicket(list[0].ticketNo);
+});
+$('#qClear').onclick = () => { $('#q').value = ''; renderResults(); $('#q').focus(); };
+$('#syncBtn').onclick = () => refresh(true);
+$('#deskBtn').onclick = () => { if (confirm('Sign this device out? You will need the PIN again.')) logout(); };
+
+/* -------------------------------- login -------------------------------- */
+function logout(msg){
+  store.del('pin'); session.pin = ''; tickets = []; byNo = new Map(); lastSync = 0;
+  $('#app').classList.add('hidden'); $('#login').classList.remove('hidden');
+  $('#deskName').value = session.desk;
+  const e = $('#loginErr'); if (msg){ e.textContent = msg; e.classList.remove('hidden'); } else e.classList.add('hidden');
+}
+async function start(){
+  $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+  $('#deskBtn').textContent = session.desk + ' ⇄';
+  switchTab(store.get('tab') || 'checkin');
+  resetSell();
+  await refresh();
+}
+$('#loginBtn').onclick = async () => {
+  const desk = $('#deskName').value.trim(), pin = $('#pin').value.trim(), e = $('#loginErr');
+  if (!desk || !pin){ e.textContent = 'Enter a desk name and the PIN.'; e.classList.remove('hidden'); return; }
+  const b = $('#loginBtn'); b.disabled = true; b.textContent = 'Checking…';
+  session = { desk, pin };
+  try{
+    const r = await api('ping');
+    if (r.ok){ store.set('desk', desk); store.set('pin', pin); $('#pin').value = ''; start(); }
+    else { e.textContent = r.error || 'Wrong PIN.'; e.classList.remove('hidden'); session.pin = ''; }
+  }catch(err){ e.textContent = 'Could not reach the ticket sheet. Check the internet connection.'; e.classList.remove('hidden'); session.pin = ''; }
+  b.disabled = false; b.textContent = 'Start';
+};
+$('#pin').addEventListener('keydown', e => { if (e.key === 'Enter') $('#loginBtn').click(); });
+
+/* -------------------------------- boot -------------------------------- */
+document.title = CFG.EVENT_NAME + ' · Ticket Desk';
+$('#eventName').textContent = CFG.EVENT_NAME;
+$('#loginTitle').textContent = CFG.EVENT_NAME + ' Ticket Desk';
+if (DEMO){ $('#demoBar').classList.remove('hidden'); $('#pin').placeholder = 'Demo PIN: 1234'; }
+if (session.desk && session.pin) start(); else logout();
+})();
+</script>
+</body>
+</html>

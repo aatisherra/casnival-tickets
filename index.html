@@ -353,7 +353,7 @@ let filterType = 'all', filterStatus = 'all';
 let sellType = 'Regular', sellSale = 'Presale';
 let openNo = null;
 const loadJSON = (k, d) => { try{ return JSON.parse(store.get(k) || 'null') || d; }catch(e){ return d; } };
-let version = '';
+let version = '', lastFull = 0;   // a full download at least once a minute, as a safety net
 let outbox = loadJSON('outbox', []);      // changes waiting to reach the sheet
 let problems = loadJSON('problems', []);  // changes the sheet refused after being saved offline
 let flushing = false;
@@ -546,7 +546,9 @@ async function refresh(manual){
   if (syncing) return; syncing = true; paintSync();
   try{
     await flush();
-    const r = await api('list', manual || !version ? {} : { since: version });
+    const full = manual || !version || Date.now() - lastFull > 60000;
+    const r = await api('list', full ? {} : { since: version });
+    if (full) lastFull = Date.now();
     if (r.authError){ logout(r.error); return; }
     if (!r.ok) throw new Error(r.error);
     if (r.role && r.role !== session.role) setRole(r.role);

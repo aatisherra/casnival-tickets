@@ -9,6 +9,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tickets">
 <script src="config.js"></script>
 <style>
 :root{
@@ -168,6 +173,14 @@ mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px
 
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:12px 18px;border-radius:12px;font-weight:600;z-index:80;box-shadow:var(--shadow);max-width:90vw;animation:up .2s}
 .toast.bad{background:var(--warn);color:#fff}
+.offline-bar{background:var(--warn-bg);color:var(--warn);border-bottom:1px solid var(--warn);text-align:center;font-size:13px;padding:8px 16px;font-weight:600}
+.problem-bar{display:block;width:100%;border:0;background:var(--warn);color:#fff;text-align:center;font-size:13.5px;padding:9px 16px;font-weight:700}
+.badge.wait{background:var(--gold-bg);color:var(--gold)}
+.problems{border:1px solid var(--warn);background:var(--warn-bg);border-radius:var(--radius);padding:14px 16px;margin-bottom:12px}
+.problems h3{margin:0 0 8px;color:var(--warn);font:700 14px var(--f-body)}
+.problems li{margin:0 0 8px;font-size:13.5px}
+.problems ul{margin:0 0 10px;padding-left:18px}
+.queued-note{font-size:13px;color:var(--gold);font-weight:600;margin:-8px 0 14px}
 
 @media (max-width:560px){
   .strip{grid-template-columns:repeat(2,1fr)}
@@ -220,6 +233,8 @@ mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px
       <button class="tab" data-tab="overview">Overview</button>
     </nav>
   </header>
+  <div class="offline-bar hidden" id="offlineBar">No internet. Search still works, and check-ins are saved on this phone and sent automatically when it's back.</div>
+  <button class="problem-bar hidden" id="problemBar"></button>
   <div class="demo-bar hidden" id="demoBar">Demo mode — data is saved only on this device. Add your script URL in config.js to go live.</div>
 
   <main>
@@ -297,13 +312,15 @@ mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px
 
     <!-- OVERVIEW -->
     <section id="tab-overview" class="hidden">
+      <div id="problemBox"></div>
       <div class="ov" id="ovCards"></div>
       <div class="ov">
         <div class="card feed"><h3>Latest check-ins</h3><div id="feedIn"></div></div>
         <div class="card feed"><h3>Latest sales</h3><div id="feedSold"></div></div>
       </div>
-      <div class="btn-row" style="max-width:420px">
+      <div class="btn-row" style="max-width:560px">
         <button class="btn btn-ghost" id="exportBtn">Download CSV backup</button>
+        <button class="btn btn-ghost" id="printBtn">Print paper list</button>
       </div>
       <p class="hint" style="margin-top:10px">Keep a fresh backup on one phone before gates open, in case the internet drops.</p>
     </section>
@@ -335,14 +352,126 @@ let lastSync = 0, syncing = false, syncFailed = false;
 let filterType = 'all', filterStatus = 'all';
 let sellType = 'Regular', sellSale = 'Presale';
 let openNo = null;
+const loadJSON = (k, d) => { try{ return JSON.parse(store.get(k) || 'null') || d; }catch(e){ return d; } };
+let version = '';
+let outbox = loadJSON('outbox', []);      // changes waiting to reach the sheet
+let problems = loadJSON('problems', []);  // changes the sheet refused after being saved offline
+let flushing = false;
+const buzz = p => { try{ if (navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) navigator.vibrate(p); }catch(e){} };
 
 /* --------------------------------- API --------------------------------- */
-async function api(action, payload = {}){
+async function api(action, payload = {}, ms = 15000){
   if (DEMO) return demoApi(action, payload);
   const body = JSON.stringify(Object.assign({ action, pin: session.pin, device: session.desk }, payload));
-  const res = await fetch(CFG.API_URL, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body, redirect:'follow' });
-  if (!res.ok) throw new Error('Server error ' + res.status);
-  return res.json();
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
+  try{
+    const res = await fetch(CFG.API_URL, { method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' }, body, redirect:'follow', signal: ctl.signal });
+    if (!res.ok) throw new Error('Server error ' + res.status);
+    return await res.json();
+  } finally { clearTimeout(timer); }
+}
+
+/* ------------------------- offline-safe changes ------------------------- *
+ * Every change gets an id. If the sheet can't be reached, the change is
+ * kept on this phone, shown straight away, and sent later. The script
+ * remembers ids, so a change that is sent twice only happens once.
+ */
+const newId = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+function saveOutbox(){ store.set('outbox', JSON.stringify(outbox)); paintSync(); }
+function saveCache(){ store.set('cache', JSON.stringify({ version, tickets: tickets.filter(t => !t.pending) })); }
+
+// What a waiting change looks like on this phone until the sheet confirms it.
+function applyLocal(op){
+  const p = op.payload, t = byNo.get(Number(p.ticketNo || (p.data && p.data.ticketNo)));
+  if (op.action === 'checkin' && t) upsert(Object.assign({}, t, { checkedIn:true, checkedInAt:op.at, checkedInBy:session.desk, pending:true }));
+  else if (op.action === 'undo' && t) upsert(Object.assign({}, t, { checkedIn:false, checkedInAt:'', checkedInBy:'', pending:true }));
+  else if (op.action === 'update' && t) upsert(Object.assign({}, t, p.data, { pending:true }));
+  else if (op.action === 'sell'){
+    const d = p.data;
+    upsert({ ticketNo:Number(d.ticketNo), type:d.type, name:d.name.trim(), phone:d.phone.replace(/[^\d+]/g,''), email:(d.email||'').trim(),
+      parentName:(d.parentName||'').trim(), parentPhone:(d.parentPhone||'').replace(/[^\d+]/g,''), saleType:d.saleType, soldBy:session.desk,
+      soldAt:op.at, checkedIn:false, checkedInAt:'', checkedInBy:'', notes:(d.notes||'').trim(), pending:true });
+  }
+}
+
+// Checks a change against this phone's copy before saving it offline.
+function offlineCheck(action, payload){
+  if (action === 'sell'){
+    const n = parseInt(payload.data.ticketNo, 10);
+    if (!(n > 0)) return { ok:false, error:'No internet. Type the number printed on the ticket to save this sale offline.' };
+    if (byNo.has(n)) return { ok:false, duplicate:true, error:'Ticket #' + n + ' is already sold to ' + byNo.get(n).name + '.' };
+    return null;
+  }
+  const t = byNo.get(Number(payload.ticketNo));
+  if (!t) return { ok:false, error:'Ticket #' + payload.ticketNo + ' is not on this phone\'s list. If they have a real ticket, it may have just been sold — ask the sales desk.' };
+  if (action === 'checkin' && t.checkedIn) return { ok:false, already:true, ticket:t, error:'Already checked in.' };
+  return null;
+}
+
+async function send(action, payload){
+  const op = { id:newId(), action, payload, at:new Date().toISOString() };
+  if (!DEMO && navigator.onLine === false) return queue(op, true);
+  // Earlier changes are still waiting: keep the order, and send them all.
+  if (!DEMO && outbox.length){ const r = queue(op, syncFailed); flush(); return r; }
+  try{
+    // Short wait when the last attempt already failed, so the queue isn't held up.
+    const r = await api(action, Object.assign({ opId: op.id }, payload), syncFailed ? 5000 : 9000);
+    if (r.authError) logout(r.error);
+    else { syncFailed = false; paintSync(); }
+    return r;
+  }catch(e){
+    if (DEMO) throw e;
+    return queue(op, true);
+  }
+}
+function queue(op, offline){
+  const bad = offlineCheck(op.action, op.payload);
+  if (bad) return bad;
+  if (offline) syncFailed = true;
+  outbox.push(op); saveOutbox(); applyLocal(op);
+  const t = byNo.get(Number(op.payload.ticketNo || op.payload.data.ticketNo));
+  return { ok:true, queued:true, ticket:t };
+}
+
+async function flush(){
+  if (flushing || !outbox.length || DEMO) return;
+  flushing = true; paintSync();
+  try{
+    while (outbox.length){
+      const op = outbox[0];
+      const payload = JSON.parse(JSON.stringify(op.payload));
+      if (op.action === 'sell') payload.data.at = op.at;
+      let r;
+      try{ r = await api(op.action, Object.assign({ opId: op.id, at: op.at }, payload)); }
+      catch(e){ syncFailed = true; return; }
+      if (r.authError){ logout(r.error); return; }
+      outbox.shift(); saveOutbox();
+      if (r.ticket) upsert(r.ticket);
+      if (!r.ok) addProblem(op, r);
+    }
+    syncFailed = false;
+  } finally { flushing = false; paintSync(); renderAll(); }
+}
+
+function addProblem(op, r){
+  const no = op.payload.ticketNo || (op.payload.data && op.payload.data.ticketNo);
+  const t = r.ticket || byNo.get(Number(no));
+  let msg;
+  if (op.action === 'checkin' && r.already)
+    msg = `Ticket #${no} (${t ? t.name : ''}) was let in here at ${fmtTime(op.at)} while offline, but ${t && t.checkedInBy ? t.checkedInBy : 'another gate'} had already checked it in at ${t ? fmtTime(t.checkedInAt) : '?'}. Two people may have used the same ticket.`;
+  else if (op.action === 'sell' && r.duplicate)
+    msg = `Ticket #${no} was sold here offline to ${op.payload.data.name}, but it was already sold to ${t ? t.name : 'someone else'}. The sheet kept the first sale — sort out ${op.payload.data.name} at the sales desk.`;
+  else msg = `${op.action === 'sell' ? 'Sale' : op.action === 'checkin' ? 'Check-in' : 'Change'} for ticket #${no} saved offline at ${fmtTime(op.at)} was refused: ${r.error || 'unknown error'}`;
+  problems.unshift({ at:new Date().toISOString(), msg });
+  store.set('problems', JSON.stringify(problems.slice(0, 50)));
+  buzz([80,60,80]); toast('Sync problem — see Overview', true);
+}
+function renderProblems(){
+  const bar = $('#problemBar');
+  bar.classList.toggle('hidden', !problems.length);
+  bar.textContent = '⚠ ' + problems.length + ' sync problem' + (problems.length > 1 ? 's' : '') + ' — tap to see';
+  $('#problemBox').innerHTML = problems.length ? `<div class="problems"><h3>⚠ Changes saved offline that the sheet refused</h3><ul>${problems.map(p => `<li>${esc(p.msg)}</li>`).join('')}</ul><button class="btn btn-ghost" id="clearProblems" style="width:auto;padding:8px 14px;font-size:13px">I've dealt with these — clear</button></div>` : '';
+  const c = $('#clearProblems'); if (c) c.onclick = () => { problems = []; store.set('problems', '[]'); renderProblems(); };
 }
 
 /* Demo backend (same rules as the real script, stored on this device) */
@@ -416,12 +545,18 @@ function nextFree(){ let m = 0; for (const t of tickets) if (t.ticketNo > m) m =
 async function refresh(manual){
   if (syncing) return; syncing = true; paintSync();
   try{
-    const r = await api('list');
+    await flush();
+    const r = await api('list', manual || !version ? {} : { since: version });
     if (r.authError){ logout(r.error); return; }
     if (!r.ok) throw new Error(r.error);
     if (r.role && r.role !== session.role) setRole(r.role);
-    setTickets(r.tickets); lastSync = Date.now(); syncFailed = false;
-    renderAll();
+    if (!r.unchanged){
+      version = r.version || '';
+      setTickets(r.tickets); saveCache();
+      outbox.forEach(applyLocal);
+      renderAll();
+    }
+    lastSync = Date.now(); syncFailed = false;
     if (manual) toast('Up to date');
   }catch(e){ syncFailed = true; if (manual) toast('Could not reach the sheet — check internet', true); }
   finally{ syncing = false; paintSync(); }
@@ -429,12 +564,22 @@ async function refresh(manual){
 function paintSync(){
   const dot = $('#syncDot'), txt = $('#syncText');
   dot.className = 'dot' + (syncing ? ' busy' : syncFailed ? ' bad' : '');
-  if (syncing && !lastSync) txt.textContent = 'Loading…';
-  else if (syncFailed) txt.textContent = 'Offline';
+  $('#offlineBar').classList.toggle('hidden', !syncFailed || !session.pin);
+  if (outbox.length && !syncFailed) dot.className = 'dot busy';
+  if (syncing && !lastSync && !tickets.length) txt.textContent = 'Loading…';
+  else if (syncFailed) txt.textContent = 'Offline' + (outbox.length ? ' · ' + outbox.length + ' waiting' : '');
+  else if (outbox.length) txt.textContent = 'Sending ' + outbox.length + '…';
   else if (DEMO) txt.textContent = 'Demo';
   else { const s = Math.round((Date.now()-lastSync)/1000); txt.textContent = s < 5 ? 'Live' : 'Synced ' + (s<60 ? s+'s' : Math.round(s/60)+'m') + ' ago'; }
 }
-setInterval(() => { paintSync(); if (!document.hidden && session.pin && Date.now()-lastSync > CFG.REFRESH_SECONDS*1000) refresh(); }, 1000);
+setInterval(() => {
+  paintSync();
+  if (document.hidden || !session.pin) return;
+  const wait = syncFailed ? 5000 : CFG.REFRESH_SECONDS * 1000;
+  if (Date.now() - lastSync > wait) refresh();
+}, 1000);
+window.addEventListener('online', () => { if (session.pin) refresh(); });
+window.addEventListener('offline', () => { syncFailed = true; paintSync(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && session.pin) refresh(); });
 
 /* ------------------------------- search ------------------------------- */
@@ -478,7 +623,7 @@ function hl(text, q){
 }
 
 /* ------------------------------- render ------------------------------- */
-function renderAll(){ renderStats(); renderResults(); renderSellHint(); renderOverview(); if (openNo != null && byNo.has(openNo) && !$('#modal .editing')) openTicket(openNo, true); }
+function renderAll(){ renderProblems(); renderStats(); renderResults(); renderSellHint(); renderOverview(); if (openNo != null && byNo.has(openNo) && !$('#modal .editing')) openTicket(openNo, true); }
 
 function counts(){
   const c = { sold:0, in:0, reg:0, regIn:0, gold:0, goldIn:0, pre:0, spot:0 };
@@ -506,7 +651,8 @@ function renderResults(){
   if (!list.length){
     const n = digits(q);
     $('#results').innerHTML = '<div class="empty card">' + (q ? 'Nothing matches “' + esc(q) + '”.' : 'No tickets in this filter.') +
-      (canSell() && n && /^[#\s\d]+$/.test(q.trim()) ? '<br><br><button class="btn btn-main" style="max-width:280px" data-sellno="'+esc(n)+'">Sell ticket #'+esc(n)+' on the spot</button>' : '') + '</div>';
+      (canSell() && n && /^[#\s\d]+$/.test(q.trim()) ? '<br><br><button class="btn btn-main" style="max-width:280px" data-sellno="'+esc(n)+'">Sell ticket #'+esc(n)+' on the spot</button>' : '') +
+      (!canSell() && q ? '<br><br><span style="font-size:13.5px">If they have a real ticket, it may have just been sold. Ask the sales desk, or note the number on paper and let a coordinator decide.</span>' : '') + '</div>';
     return;
   }
   $('#results').innerHTML = shown.map(t => `
@@ -514,7 +660,7 @@ function renderResults(){
       <span class="num">${t.ticketNo}</span>
       <span class="who"><b>${hl(t.name,q)}</b><span>${t.parentName ? 'Parent: '+hl(t.parentName,q)+' · ' : ''}${esc(t.phone)}</span></span>
       <span class="tags">${t.type==='Golden' ? '<span class="badge gold">★ Golden</span>' : '<span class="badge reg">Regular</span>'}
-      ${t.checkedIn ? '<span class="badge in">✓ In<span class="t"> '+esc(fmtTime(t.checkedInAt))+'</span></span>' : '<span class="badge out">Not in</span>'}</span>
+      ${t.pending ? '<span class="badge wait">⏳ Not sent</span>' : ''}${t.checkedIn ? '<span class="badge in">✓ In<span class="t"> '+esc(fmtTime(t.checkedInAt))+'</span></span>' : '<span class="badge out">Not in</span>'}</span>
     </button>`).join('');
 }
 $('#results').addEventListener('click', e => {
@@ -571,16 +717,17 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#modal'
 async function doCheckIn(no, btn){
   btn.disabled = true; btn.textContent = 'Checking in…';
   try{
-    const r = await api('checkin', { ticketNo: no });
-    if (r.ticket) upsert(r.ticket);
+    const r = await send('checkin', { ticketNo: no });
+    if (r.ticket && !r.queued) upsert(r.ticket);
     if (r.ok){
-      const t = r.ticket;
+      const t = r.ticket; buzz(40);
       $('#modal .sheet').innerHTML = `
         <div class="done">
           <div class="status ok" style="text-align:center"><big>✓ Checked in</big></div>
           <div class="big-num" style="color:${t.type==='Golden'?'var(--gold)':'inherit'}"><small>#</small>${t.ticketNo}</div>
           <h2 class="tname">${esc(t.name)}</h2>
           <p>${t.type==='Golden' ? '★ Golden ticket' : 'Regular ticket'}</p>
+          ${r.queued ? '<p class="queued-note">No internet — saved on this phone, will send automatically.</p>' : ''}
           <button class="btn btn-main" data-close id="nextBtn">Next person</button>
         </div>`;
       openNo = null;
@@ -588,14 +735,14 @@ async function doCheckIn(no, btn){
       const nb = $('#nextBtn'); nb.removeAttribute('data-close'); nb.onclick = next; nb.focus();
       renderAll();
       setTimeout(() => { if ($('#nextBtn') === nb) next(); }, 3500);
-    } else if (r.already){ renderAll(); openTicket(no, true); toast('Already checked in!', true); }
+    } else if (r.already){ buzz([80,60,80]); renderAll(); openTicket(no, true); toast('Already checked in!', true); }
     else { toast(r.error || 'Could not check in', true); btn.disabled = false; btn.textContent = 'Try again'; }
   }catch(e){ toast('No connection — try again', true); btn.disabled = false; btn.textContent = 'Try again'; }
 }
 async function doUndo(no, btn){
   if (!confirm('Undo check-in for ticket #' + no + '?')) return;
   btn.disabled = true;
-  try{ const r = await api('undo', { ticketNo: no }); if (r.ok){ upsert(r.ticket); renderAll(); openTicket(no, true); toast('Check-in undone'); } else toast(r.error, true); }
+  try{ const r = await send('undo', { ticketNo: no }); if (r.ok){ if (!r.queued) upsert(r.ticket); renderAll(); openTicket(no, true); toast(r.queued ? 'Undone on this phone — will send when online' : 'Check-in undone'); } else toast(r.error, true); }
   catch(e){ toast('No connection — try again', true); }
   btn.disabled = false;
 }
@@ -623,7 +770,7 @@ function editTicket(no){
     const data = { type, name:$('#eName').value, phone:$('#ePhone').value, email:$('#eEmail').value, parentName:$('#eParent').value, parentPhone:$('#eParentPhone').value, notes:$('#eNotes').value };
     if (!data.name.trim() || !digits(data.phone)) { const e = $('#eErr'); e.textContent = 'Name and phone are required.'; e.classList.remove('hidden'); return; }
     const b = $('#eSave'); b.disabled = true; b.textContent = 'Saving…';
-    try{ const r = await api('update', { ticketNo: no, data }); if (r.ok){ upsert(r.ticket); renderAll(); openTicket(no, true); toast('Saved'); } else { toast(r.error, true); b.disabled=false; b.textContent='Save changes'; } }
+    try{ const r = await send('update', { ticketNo: no, data }); if (r.ok){ if (!r.queued) upsert(r.ticket); renderAll(); openTicket(no, true); toast(r.queued ? 'Saved on this phone — will send when online' : 'Saved'); } else { toast(r.error, true); b.disabled=false; b.textContent='Save changes'; } }
     catch(e){ toast('No connection — try again', true); b.disabled=false; b.textContent='Save changes'; }
   };
 }
@@ -659,14 +806,14 @@ $('#sellBtn').onclick = async () => {
   if (problems.length){ err.innerHTML = problems.map(esc).join('<br>'); err.classList.remove('hidden'); return; }
   const b = $('#sellBtn'); b.disabled = true; b.textContent = 'Saving…';
   try{
-    const r = await api('sell', { data });
+    const r = await send('sell', { data });
     if (r.ok){
-      upsert(r.ticket); renderAll();
+      if (!r.queued) upsert(r.ticket); renderAll(); buzz(40);
       $('#sellForm').classList.add('hidden'); $('#sellDone').classList.remove('hidden');
       $('#doneLbl').textContent = (r.ticket.type === 'Golden' ? '★ Golden' : 'Regular') + ' ticket saved' + (r.ticket.checkedIn ? ' & checked in' : '');
       $('#doneNum').innerHTML = '<small>#</small>' + r.ticket.ticketNo;
       $('#doneNum').style.color = r.ticket.type === 'Golden' ? 'var(--gold)' : '';
-      $('#doneWho').textContent = r.ticket.name + (data.ticketNo ? '' : ' — write #' + r.ticket.ticketNo + ' on their ticket');
+      $('#doneWho').textContent = r.ticket.name + (data.ticketNo ? '' : ' — write #' + r.ticket.ticketNo + ' on their ticket') + (r.queued ? '. No internet — saved on this phone, will send automatically.' : '');
       window.scrollTo(0,0);
     } else { err.textContent = r.error || 'Could not save.'; err.classList.remove('hidden'); if (r.duplicate) refresh(); }
   }catch(e){ err.textContent = 'No connection. Nothing was saved — check internet and press Save again.'; err.classList.remove('hidden'); }
@@ -693,6 +840,21 @@ function renderOverview(){
   $('#feedIn').innerHTML = recent('checkedInAt', tickets.filter(t => t.checkedIn).sort((a,b) => (b.checkedInAt||'').localeCompare(a.checkedInAt||'')).slice(0,8));
   $('#feedSold').innerHTML = recent('soldAt', tickets.slice().sort((a,b) => (b.soldAt||'').localeCompare(a.soldAt||'')).slice(0,8));
 }
+$('#printBtn').onclick = () => {
+  const w = window.open('', '_blank'); if (!w){ toast('Allow pop-ups to print the list', true); return; }
+  const last4 = p => p ? '…' + String(p).slice(-4) : '';
+  const row = t => `<tr><td class="n">${t.ticketNo}</td><td>${esc(t.name)}</td><td>${t.type === 'Golden' ? '★ Golden' : 'Regular'}</td><td>${esc(t.parentName)}</td><td>${esc(last4(t.phone))}</td><td class="box">${t.checkedIn ? '✓' : ''}</td></tr>`;
+  const table = (title, list) => `<h2>${title}</h2><table><thead><tr><th>#</th><th>Name</th><th>Type</th><th>Parent</th><th>Phone</th><th>In</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>`;
+  const byName = tickets.slice().sort((a,b) => a.name.localeCompare(b.name));
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(CFG.EVENT_NAME)} gate list</title><style>
+    body{font:12px/1.35 -apple-system,Segoe UI,Arial,sans-serif;margin:18px;color:#000}h1{font-size:18px;margin:0 0 4px}p{margin:0 0 12px;color:#444}
+    h2{font-size:14px;margin:18px 0 6px;page-break-before:always}h2:first-of-type{page-break-before:auto}
+    table{width:100%;border-collapse:collapse}th,td{border:1px solid #999;padding:3px 6px;text-align:left}th{background:#eee}
+    td.n{font-weight:700;width:48px}td.box{width:34px;text-align:center}tr{page-break-inside:avoid}</style>
+    <h1>${esc(CFG.EVENT_NAME)} — paper backup list</h1><p>Printed ${new Date().toLocaleString('en-IN')} · ${tickets.length} tickets · ✓ = already checked in when printed. Tick the box when someone comes in, and enter it on the site later.</p>
+    ${table('By ticket number', tickets)}${table('By name', byName)}`);
+  w.document.close(); setTimeout(() => w.print(), 300);
+};
 $('#exportBtn').onclick = () => {
   const cols = [['Ticket No','ticketNo'],['Type','type'],['Name','name'],['Phone','phone'],['Email','email'],['Parent Name','parentName'],['Parent Phone','parentPhone'],['Sale Type','saleType'],['Sold By','soldBy'],['Sold At','soldAt'],['Checked In','checkedIn'],['Checked In At','checkedInAt'],['Checked In By','checkedInBy'],['Notes','notes']];
   const cell = v => { v = v === true ? 'Yes' : v === false ? 'No' : String(v ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
@@ -737,7 +899,7 @@ function applyRole(){
 
 /* -------------------------------- login -------------------------------- */
 function logout(msg){
-  store.del('pin'); store.del('role'); session.pin = ''; session.role = 'checkin'; tickets = []; byNo = new Map(); lastSync = 0;
+  store.del('pin'); store.del('role'); store.del('cache'); session.pin = ''; session.role = 'checkin'; tickets = []; byNo = new Map(); lastSync = 0; version = '';
   $('#app').classList.add('hidden'); $('#login').classList.remove('hidden');
   $('#deskName').value = session.desk;
   const e = $('#loginErr'); if (msg){ e.textContent = msg; e.classList.remove('hidden'); } else e.classList.add('hidden');
@@ -745,8 +907,10 @@ function logout(msg){
 async function start(){
   $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
   applyRole();
+  const cache = loadJSON('cache', null);
+  if (cache && cache.tickets){ version = cache.version || ''; setTickets(cache.tickets); outbox.forEach(applyLocal); lastSync = 0; }
   switchTab(store.get('tab') || 'checkin');
-  resetSell();
+  resetSell(); renderAll();
   await refresh();
 }
 $('#loginBtn').onclick = async () => {
@@ -758,7 +922,7 @@ $('#loginBtn').onclick = async () => {
     const r = await api('ping');
     if (r.ok){ store.set('desk', desk); store.set('pin', pin); session.role = r.role || 'sales'; store.set('role', session.role); $('#pin').value = ''; start(); }
     else { e.textContent = r.error || 'Wrong PIN.'; e.classList.remove('hidden'); session.pin = ''; }
-  }catch(err){ e.textContent = 'Could not reach the ticket sheet. Check the internet connection.'; e.classList.remove('hidden'); session.pin = ''; }
+  }catch(err){ e.textContent = 'Could not reach the ticket sheet. Signing in needs internet once — after that the phone keeps working offline.'; e.classList.remove('hidden'); session.pin = ''; }
   b.disabled = false; b.textContent = 'Start';
 };
 $('#pin').addEventListener('keydown', e => { if (e.key === 'Enter') $('#loginBtn').click(); });
@@ -768,7 +932,9 @@ document.title = CFG.EVENT_NAME + ' · Ticket Desk';
 $('#eventName').textContent = CFG.EVENT_NAME;
 $('#loginTitle').textContent = CFG.EVENT_NAME + ' Ticket Desk';
 if (DEMO){ $('#demoBar').classList.remove('hidden'); $('#pin').placeholder = 'Demo PINs: 1234 sales, 5678 check-in'; }
+$('#problemBar').onclick = () => switchTab('overview');
 if (session.desk && session.pin) start(); else logout();
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>
 </body>

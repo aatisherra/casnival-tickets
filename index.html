@@ -129,6 +129,10 @@ mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px
 .btn[disabled]{opacity:.55;cursor:wait}
 .btn-row{display:flex;gap:8px;margin-top:8px}
 .btn-row .btn{font-size:14px;padding:12px}
+.testing{margin-top:22px;padding:16px;max-width:560px;border-color:var(--warn)}
+.testing h3{color:var(--warn)}
+.testing .field{margin:10px 0 0}
+.btn-danger{background:var(--warn);color:#fff}
 
 /* forms */
 .form{padding:18px}
@@ -323,6 +327,14 @@ mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px
         <button class="btn btn-ghost" id="printBtn">Print paper list</button>
       </div>
       <p class="hint" style="margin-top:10px">Keep a fresh backup on one phone before gates open, in case the internet drops.</p>
+      <div class="card testing hidden" id="testing">
+        <h3>Testing tools · master PIN</h3>
+        <p class="hint" style="margin:0 0 10px">An Excel copy of the whole sheet is saved to Drive → <b>CASnival backups</b> before each of these. Volunteer resets are on the volunteer site → Testing.</p>
+        <button class="btn btn-ghost" data-admin="admin.resetCheckins">Reset all check-ins</button>
+        <div class="field"><input id="delNo" inputmode="numeric" placeholder="Ticket number to delete"></div>
+        <button class="btn btn-ghost" data-admin="admin.deleteTicket" style="margin-top:8px">Delete this ticket</button>
+        <button class="btn btn-danger" data-admin="admin.deleteAll" style="margin-top:8px">Delete ALL tickets</button>
+      </div>
     </section>
   </main>
 </div>
@@ -344,8 +356,8 @@ const store = {
 };
 
 let session = { desk: store.get('desk') || '', pin: store.get('pin') || '', role: store.get('role') || 'checkin' };
-const canSell = () => session.role === 'sales';
-const canCheckIn = () => session.role === 'checkin';
+const canSell = () => session.role === 'sales' || session.role === 'master';
+const canCheckIn = () => session.role === 'checkin' || session.role === 'master';
 let tickets = [];          // all tickets from the sheet
 let byNo = new Map();
 let lastSync = 0, syncing = false, syncFailed = false;
@@ -492,11 +504,15 @@ function demoDb(){
 }
 async function demoApi(action, p){
   await new Promise(r => setTimeout(r, 250));
-  const role = session.pin === '1234' ? 'sales' : session.pin === '5678' ? 'checkin' : '';
-  if (!role) return { ok:false, authError:true, error:'Wrong PIN. (Demo PINs: 1234 sales, 5678 check-in)' };
-  if (role !== 'sales' && (action === 'sell' || action === 'update')) return { ok:false, error:'The check-in PIN can only check people in. Ask the sales desk.' };
-  if (role !== 'checkin' && (action === 'checkin' || action === 'undo')) return { ok:false, error:"The sales PIN can't check people in. Send them to the gate." };
+  const role = session.pin === '1234' ? 'sales' : session.pin === '5678' ? 'checkin' : session.pin === '0000' ? 'master' : '';
+  if (!role) return { ok:false, authError:true, error:'Wrong PIN. (Demo PINs: 1234 sales, 5678 check-in, 0000 master)' };
+  if (role === 'checkin' && (action === 'sell' || action === 'update')) return { ok:false, error:'The check-in PIN can only check people in. Ask the sales desk.' };
+  if (role === 'sales' && (action === 'checkin' || action === 'undo')) return { ok:false, error:"The sales PIN can't check people in. Send them to the gate." };
+  if (role !== 'master' && action.startsWith('admin.')) return { ok:false, error:'Only the master PIN can use the testing tools.' };
   const db = demoDb(); const save = () => store.set('demo', JSON.stringify(db));
+  if (action === 'admin.resetCheckins'){ db.forEach(t => Object.assign(t, { checkedIn:false, checkedInAt:'', checkedInBy:'' })); save(); return { ok:true }; }
+  if (action === 'admin.deleteAll'){ db.length = 0; save(); return { ok:true }; }
+  if (action === 'admin.deleteTicket'){ const i = db.findIndex(t => t.ticketNo === Number(p.ticketNo)); if (i < 0) return { ok:false, error:'Ticket #' + p.ticketNo + ' was not found.' }; db.splice(i, 1); save(); return { ok:true }; }
   const find = n => db.find(t => t.ticketNo === Number(n));
   const dev = session.desk;
   if (action === 'ping') return { ok:true, role };
@@ -857,6 +873,23 @@ $('#printBtn').onclick = () => {
     ${table('By ticket number', tickets)}${table('By name', byName)}`);
   w.document.close(); setTimeout(() => w.print(), 300);
 };
+$('#testing').addEventListener('click', async e => {
+  const b = e.target.closest('[data-admin]'); if (!b) return;
+  const action = b.dataset.admin, no = digits($('#delNo').value);
+  if (action === 'admin.deleteTicket' && !no){ toast('Type the ticket number first', true); return; }
+  const what = { 'admin.resetCheckins':'Set EVERY ticket back to not checked in?', 'admin.deleteTicket':'Delete ticket #' + no + ' completely?', 'admin.deleteAll':'Delete ALL ' + tickets.length + ' tickets?' }[action];
+  if (!confirm(what + '\n\nA backup of the sheet is saved to Drive first.')) return;
+  if (action === 'admin.deleteAll' && prompt('Type DELETE to confirm') !== 'DELETE') return;
+  if (outbox.length){ toast('Wait until the phone has sent its waiting changes', true); return; }
+  b.disabled = true; const old = b.textContent; b.textContent = 'Backing up…';
+  try{
+    const r = await api(action, { ticketNo: no, opId: newId() }, 60000);
+    if (r.authError) return logout(r.error);
+    if (!r.ok) toast(r.error || 'Could not do that', true);
+    else { toast('Done'); $('#delNo').value = ''; await refresh(true); }
+  }catch(err){ toast('No connection — nothing was changed', true); }
+  finally{ b.disabled = false; b.textContent = old; }
+});
 $('#exportBtn').onclick = () => {
   const cols = [['Ticket No','ticketNo'],['Type','type'],['Name','name'],['Phone','phone'],['Email','email'],['Parent Name','parentName'],['Parent Phone','parentPhone'],['Sale Type','saleType'],['Sold By','soldBy'],['Sold At','soldAt'],['Checked In','checkedIn'],['Checked In At','checkedInAt'],['Checked In By','checkedInBy'],['Notes','notes']];
   const cell = v => { v = v === true ? 'Yes' : v === false ? 'No' : String(v ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
@@ -894,9 +927,10 @@ function setRole(role){ session.role = role; store.set('role', role); applyRole(
 function applyRole(){
   const sales = canSell();
   $('.tab[data-tab="sell"]').classList.toggle('hidden', !sales);
-  $('#lookupTab').textContent = sales ? 'Look up' : 'Check in';
+  $('#lookupTab').textContent = canCheckIn() ? 'Check in' : 'Look up';
   if (!sales && !$('#tab-sell').classList.contains('hidden')) switchTab('checkin');
-  $('#deskBtn').textContent = session.desk + (sales ? '' : ' · Check-in') + ' ⇄';
+  $('#testing').classList.toggle('hidden', session.role !== 'master');
+  $('#deskBtn').textContent = session.desk + (session.role === 'master' ? ' · Master' : sales ? '' : ' · Check-in') + ' ⇄';
 }
 
 /* -------------------------------- login -------------------------------- */
@@ -933,7 +967,7 @@ $('#pin').addEventListener('keydown', e => { if (e.key === 'Enter') $('#loginBtn
 document.title = CFG.EVENT_NAME + ' · Ticket Desk';
 $('#eventName').textContent = CFG.EVENT_NAME;
 $('#loginTitle').textContent = CFG.EVENT_NAME + ' Ticket Desk';
-if (DEMO){ $('#demoBar').classList.remove('hidden'); $('#pin').placeholder = 'Demo PINs: 1234 sales, 5678 check-in'; }
+if (DEMO){ $('#demoBar').classList.remove('hidden'); $('#pin').placeholder = 'Demo PINs: 1234 sales, 5678 check-in, 0000 master'; }
 $('#problemBar').onclick = () => switchTab('overview');
 if (session.desk && session.pin) start(); else logout();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

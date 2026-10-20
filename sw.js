@@ -1,7 +1,7 @@
 // Keeps the site's files on the phone so it still opens with no internet,
 // or if GitHub Pages is down. Ticket data is not handled here: the page
 // keeps its own copy and talks to the Google script directly.
-const CACHE = 'casnival-tickets-v3';
+const CACHE = 'casnival-tickets-v4';
 const SHELL = ['./', './index.html', './config.js', './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

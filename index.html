@@ -195,7 +195,6 @@ mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px
   .row{gap:10px;padding:12px}
   .num{min-width:48px;font-size:18px}
   .tags{flex-direction:column;align-items:flex-end;gap:4px}
-  .badge.reg{display:none}
   .badge .t{display:none}
 }
 </style>
@@ -242,6 +241,7 @@ mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px
   <div class="demo-bar hidden" id="demoBar">Demo mode — data is saved only on this device. Add your script URL in config.js to go live.</div>
 
   <main>
+    <div id="problemBox"></div>
     <!-- CHECK IN -->
     <section id="tab-checkin">
       <div class="strip">
@@ -254,15 +254,6 @@ mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
         <input id="q" type="search" inputmode="search" placeholder="Ticket no., name, phone, email, parent…" autocomplete="off" autocapitalize="off" spellcheck="false">
         <button class="clear hidden" id="qClear">Clear</button>
-      </div>
-      <div class="filters">
-        <button class="chip on" data-ft="all">All types</button>
-        <button class="chip" data-ft="Regular">Regular</button>
-        <button class="chip gold" data-ft="Golden">Golden</button>
-        <span style="width:8px"></span>
-        <button class="chip on" data-fs="all">Any status</button>
-        <button class="chip" data-fs="out">Not in yet</button>
-        <button class="chip" data-fs="in">Checked in</button>
       </div>
       <div class="hint" id="hint"></div>
       <div class="results" id="results"></div>
@@ -316,7 +307,6 @@ mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px
 
     <!-- OVERVIEW -->
     <section id="tab-overview" class="hidden">
-      <div id="problemBox"></div>
       <div class="ov" id="ovCards"></div>
       <div class="ov">
         <div class="card feed"><h3>Latest check-ins</h3><div id="feedIn"></div></div>
@@ -358,10 +348,10 @@ const store = {
 let session = { desk: store.get('desk') || '', pin: store.get('pin') || '', role: store.get('role') || 'checkin' };
 const canSell = () => session.role === 'sales' || session.role === 'master';
 const canCheckIn = () => session.role === 'checkin' || session.role === 'master';
+const canOverview = () => session.role === 'coord' || session.role === 'master';
 let tickets = [];          // all tickets from the sheet
 let byNo = new Map();
 let lastSync = 0, syncing = false, syncFailed = false;
-let filterType = 'all', filterStatus = 'all';
 let sellType = 'Regular', sellSale = 'Presale';
 let openNo = null;
 const loadJSON = (k, d) => { try{ return JSON.parse(store.get(k) || 'null') || d; }catch(e){ return d; } };
@@ -476,7 +466,7 @@ function addProblem(op, r){
   else msg = `${op.action === 'sell' ? 'Sale' : op.action === 'checkin' ? 'Check-in' : 'Change'} for ticket #${no} saved offline at ${fmtTime(op.at)} was refused: ${r.error || 'unknown error'}`;
   problems.unshift({ at:new Date().toISOString(), msg });
   store.set('problems', JSON.stringify(problems.slice(0, 50)));
-  buzz([80,60,80]); toast('Sync problem — see Overview', true);
+  buzz([80,60,80]); toast('Sync problem — see the red box at the top', true);
 }
 function renderProblems(){
   const bar = $('#problemBar');
@@ -504,8 +494,9 @@ function demoDb(){
 }
 async function demoApi(action, p){
   await new Promise(r => setTimeout(r, 250));
-  const role = session.pin === '1234' ? 'sales' : session.pin === '5678' ? 'checkin' : session.pin === '0000' ? 'master' : '';
-  if (!role) return { ok:false, authError:true, error:'Wrong PIN. (Demo PINs: 1234 sales, 5678 check-in, 0000 master)' };
+  const role = { '1234':'sales', '5678':'checkin', '0000':'master', '9999':'coord' }[session.pin] || '';
+  if (!role) return { ok:false, authError:true, error:'Wrong PIN. (Demo PINs: 1234 sales, 5678 check-in, 9999 coordinator, 0000 master)' };
+  if (role === 'coord' && !['ping','list'].includes(action)) return { ok:false, error:'The coordinator PIN can look up tickets and see the overview, but not sell or check in.' };
   if (role === 'checkin' && (action === 'sell' || action === 'update')) return { ok:false, error:'The check-in PIN can only check people in. Ask the sales desk.' };
   if (role === 'sales' && (action === 'checkin' || action === 'undo')) return { ok:false, error:"The sales PIN can't check people in. Send them to the gate." };
   if (role !== 'master' && action.startsWith('admin.')) return { ok:false, error:'Only the master PIN can use the testing tools.' };
@@ -603,9 +594,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && se
 /* ------------------------------- search ------------------------------- */
 function search(q){
   q = q.trim().toLowerCase();
-  let list = tickets.filter(t =>
-    (filterType === 'all' || t.type === filterType) &&
-    (filterStatus === 'all' || (filterStatus === 'in') === t.checkedIn));
+  const list = tickets;
   if (!q) return list;
   const qd = digits(q);
   const isNum = /^[#\s\d+-]+$/.test(q) && qd.length > 0;
@@ -668,7 +657,7 @@ function renderResults(){
   if (!tickets.length && lastSync){ $('#results').innerHTML = '<div class="empty card">No tickets sold yet. Use <b>Sell ticket</b> to add the first one.</div>'; return; }
   if (!list.length){
     const n = digits(q);
-    $('#results').innerHTML = '<div class="empty card">' + (q ? 'Nothing matches “' + esc(q) + '”.' : 'No tickets in this filter.') +
+    $('#results').innerHTML = '<div class="empty card">' + (q ? 'Nothing matches “' + esc(q) + '”.' : 'No tickets yet.') +
       (canSell() && n && /^[#\s\d]+$/.test(q.trim()) ? '<br><br><button class="btn btn-main" style="max-width:280px" data-sellno="'+esc(n)+'">Sell ticket #'+esc(n)+' on the spot</button>' : '') +
       (!canSell() && q ? '<br><br><span style="font-size:13.5px">If they have a real ticket, it may have just been sold. Ask the sales desk, or note the number on paper and let a coordinator decide.</span>' : '') + '</div>';
     return;
@@ -903,6 +892,7 @@ $('#exportBtn').onclick = () => {
 /* -------------------------------- tabs -------------------------------- */
 function switchTab(name){
   if (name === 'sell' && !canSell()) name = 'checkin';
+  if (name === 'overview' && !canOverview()) name = 'checkin';
   $$('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === name));
   ['checkin','sell','overview'].forEach(n => $('#tab-'+n).classList.toggle('hidden', n !== name));
   store.set('tab', name);
@@ -910,8 +900,6 @@ function switchTab(name){
   if (name === 'sell') renderSellHint();
 }
 $$('.tab').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
-$$('[data-ft]').forEach(b => b.onclick = () => { filterType = b.dataset.ft; $$('[data-ft]').forEach(x => x.classList.toggle('on', x===b)); renderResults(); });
-$$('[data-fs]').forEach(b => b.onclick = () => { filterStatus = b.dataset.fs; $$('[data-fs]').forEach(x => x.classList.toggle('on', x===b)); renderResults(); });
 $('#q').addEventListener('input', renderResults);
 $('#q').addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
@@ -927,10 +915,12 @@ function setRole(role){ session.role = role; store.set('role', role); applyRole(
 function applyRole(){
   const sales = canSell();
   $('.tab[data-tab="sell"]').classList.toggle('hidden', !sales);
+  $('.tab[data-tab="overview"]').classList.toggle('hidden', !canOverview());
   $('#lookupTab').textContent = canCheckIn() ? 'Check in' : 'Look up';
   if (!sales && !$('#tab-sell').classList.contains('hidden')) switchTab('checkin');
+  if (!canOverview() && !$('#tab-overview').classList.contains('hidden')) switchTab('checkin');
   $('#testing').classList.toggle('hidden', session.role !== 'master');
-  $('#deskBtn').textContent = session.desk + (session.role === 'master' ? ' · Master' : sales ? '' : ' · Check-in') + ' ⇄';
+  $('#deskBtn').textContent = session.desk + ({ master:' · Master', coord:' · Coordinator', checkin:' · Check-in' }[session.role] || '') + ' ⇄';
 }
 
 /* -------------------------------- login -------------------------------- */
@@ -967,8 +957,8 @@ $('#pin').addEventListener('keydown', e => { if (e.key === 'Enter') $('#loginBtn
 document.title = CFG.EVENT_NAME + ' · Ticket Desk';
 $('#eventName').textContent = CFG.EVENT_NAME;
 $('#loginTitle').textContent = CFG.EVENT_NAME + ' Ticket Desk';
-if (DEMO){ $('#demoBar').classList.remove('hidden'); $('#pin').placeholder = 'Demo PINs: 1234 sales, 5678 check-in, 0000 master'; }
-$('#problemBar').onclick = () => switchTab('overview');
+if (DEMO){ $('#demoBar').classList.remove('hidden'); $('#pin').placeholder = 'Demo PINs: 1234 sales, 5678 check-in, 9999 coordinator, 0000 master'; }
+$('#problemBar').onclick = () => { const b = $('#problemBox'); if (b) b.scrollIntoView({ behavior:'smooth', block:'start' }); };
 if (session.desk && session.pin) start(); else logout();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
